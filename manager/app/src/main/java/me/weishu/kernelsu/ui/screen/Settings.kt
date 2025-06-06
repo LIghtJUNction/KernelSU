@@ -4,6 +4,8 @@ import android.content.Context
 import android.content.Intent
 import android.net.Uri
 import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -25,6 +27,7 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.DeleteForever
 import androidx.compose.material.icons.filled.DeveloperMode
 import androidx.compose.material.icons.filled.Fence
+import androidx.compose.material.icons.filled.FolderDelete
 import androidx.compose.material.icons.filled.RemoveModerator
 import androidx.compose.material.icons.filled.Save
 import androidx.compose.material.icons.filled.Share
@@ -35,6 +38,7 @@ import androidx.compose.material3.IconButton
 import androidx.compose.material3.ListItem
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
@@ -58,6 +62,7 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.core.content.FileProvider
+import androidx.lifecycle.compose.dropUnlessResumed
 import com.maxkeppeker.sheets.core.models.base.Header
 import com.maxkeppeker.sheets.core.models.base.IconSource
 import com.maxkeppeker.sheets.core.models.base.rememberUseCaseState
@@ -80,12 +85,15 @@ import me.weishu.kernelsu.ui.component.AboutDialog
 import me.weishu.kernelsu.ui.component.ConfirmResult
 import me.weishu.kernelsu.ui.component.DialogHandle
 import me.weishu.kernelsu.ui.component.SwitchItem
+import me.weishu.kernelsu.ui.component.KsuIsValid
 import me.weishu.kernelsu.ui.component.rememberConfirmDialog
 import me.weishu.kernelsu.ui.component.rememberCustomDialog
 import me.weishu.kernelsu.ui.component.rememberLoadingDialog
+import me.weishu.kernelsu.ui.util.LocalSnackbarHost
 import me.weishu.kernelsu.ui.util.getBugreportFile
-import me.weishu.kernelsu.ui.util.getFileNameFromUri
 import me.weishu.kernelsu.ui.util.shrinkModules
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 
 /**
  * @author weishu
@@ -96,16 +104,18 @@ import me.weishu.kernelsu.ui.util.shrinkModules
 @Composable
 fun SettingScreen(navigator: DestinationsNavigator) {
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
+    val snackBarHost = LocalSnackbarHost.current
 
     Scaffold(
         topBar = {
             TopBar(
-                onBack = {
+                onBack = dropUnlessResumed {
                     navigator.popBackStack()
                 },
                 scrollBehavior = scrollBehavior
             )
         },
+        snackbarHost = { SnackbarHost(snackBarHost) },
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
     ) { paddingValues ->
         val aboutDialog = rememberCustomDialog {
@@ -124,27 +134,67 @@ fun SettingScreen(navigator: DestinationsNavigator) {
             val context = LocalContext.current
             val scope = rememberCoroutineScope()
 
-            val profileTemplate = stringResource(id = R.string.settings_profile_template)
-            ListItem(
-                leadingContent = { Icon(Icons.Filled.Fence, profileTemplate) },
-                headlineContent = { Text(profileTemplate) },
-                supportingContent = { Text(stringResource(id = R.string.settings_profile_template_summary)) },
-                modifier = Modifier.clickable {
-                    navigator.navigate(AppProfileTemplateScreenDestination)
+            val exportBugreportLauncher = rememberLauncherForActivityResult(
+                ActivityResultContracts.CreateDocument("application/gzip")
+            ) { uri: Uri? ->
+                if (uri == null) return@rememberLauncherForActivityResult
+                scope.launch(Dispatchers.IO) {
+                    loadingDialog.show()
+                    context.contentResolver.openOutputStream(uri)?.use { output ->
+                        getBugreportFile(context).inputStream().use {
+                            it.copyTo(output)
+                        }
+                    }
+                    loadingDialog.hide()
+                    snackBarHost.showSnackbar(context.getString(R.string.log_saved))
                 }
-            )
+            }
+
+            val profileTemplate = stringResource(id = R.string.settings_profile_template)
+            KsuIsValid() {
+                ListItem(
+                    leadingContent = { Icon(Icons.Filled.Fence, profileTemplate) },
+                    headlineContent = { Text(profileTemplate) },
+                    supportingContent = { Text(stringResource(id = R.string.settings_profile_template_summary)) },
+                    modifier = Modifier.clickable {
+                        navigator.navigate(AppProfileTemplateScreenDestination)
+                    }
+                )
+            }
 
             var umountChecked by rememberSaveable {
                 mutableStateOf(Natives.isDefaultUmountModules())
             }
-            SwitchItem(
-                icon = Icons.Filled.RemoveModerator,
-                title = stringResource(id = R.string.settings_umount_modules_default),
-                summary = stringResource(id = R.string.settings_umount_modules_default_summary),
-                checked = umountChecked
-            ) {
-                if (Natives.setDefaultUmountModules(it)) {
-                    umountChecked = it
+            
+            KsuIsValid() {
+                SwitchItem(
+                    icon = Icons.Filled.FolderDelete,
+                    title = stringResource(id = R.string.settings_umount_modules_default),
+                    summary = stringResource(id = R.string.settings_umount_modules_default_summary),
+                    checked = umountChecked
+                ) {
+                    if (Natives.setDefaultUmountModules(it)) {
+                        umountChecked = it
+                    }
+                }
+            }
+            
+            KsuIsValid() {
+                if (Natives.version >= Natives.MINIMAL_SUPPORTED_SU_COMPAT) {
+                    var isSuDisabled by rememberSaveable {
+                        mutableStateOf(!Natives.isSuEnabled())
+                    }
+                    SwitchItem(
+                        icon = Icons.Filled.RemoveModerator,
+                        title = stringResource(id = R.string.settings_disable_su),
+                        summary = stringResource(id = R.string.settings_disable_su_summary),
+                        checked = isSuDisabled,
+                    ) { checked ->
+                        val shouldEnable = !checked
+                        if (Natives.setSuEnabled(shouldEnable)) {
+                            isSuDisabled = !shouldEnable
+                        }
+                    }
                 }
             }
 
@@ -169,14 +219,17 @@ fun SettingScreen(navigator: DestinationsNavigator) {
                     prefs.getBoolean("enable_web_debugging", false)
                 )
             }
-            SwitchItem(
-                icon = Icons.Filled.DeveloperMode,
-                title = stringResource(id = R.string.enable_web_debugging),
-                summary = stringResource(id = R.string.enable_web_debugging_summary),
-                checked = enableWebDebugging
-            ) {
-                prefs.edit().putBoolean("enable_web_debugging", it).apply()
-                enableWebDebugging = it
+            
+            KsuIsValid() {
+                SwitchItem(
+                    icon = Icons.Filled.DeveloperMode,
+                    title = stringResource(id = R.string.enable_web_debugging),
+                    summary = stringResource(id = R.string.enable_web_debugging_summary),
+                    checked = enableWebDebugging
+                ) {
+                    prefs.edit().putBoolean("enable_web_debugging", it).apply()
+                    enableWebDebugging = it
+                }
             }
 
             var showBottomsheet by remember { mutableStateOf(false) }
@@ -208,35 +261,10 @@ fun SettingScreen(navigator: DestinationsNavigator) {
                                     modifier = Modifier
                                         .padding(16.dp)
                                         .clickable {
-                                            scope.launch {
-                                                val bugreport = loadingDialog.withLoading {
-                                                    withContext(Dispatchers.IO) {
-                                                        getBugreportFile(context)
-                                                    }
-                                                }
-
-                                                val uri: Uri =
-                                                    FileProvider.getUriForFile(
-                                                        context,
-                                                        "${BuildConfig.APPLICATION_ID}.fileprovider",
-                                                        bugreport
-                                                    )
-                                                val filename = getFileNameFromUri(context, uri)
-                                                val savefile =
-                                                    Intent(Intent.ACTION_CREATE_DOCUMENT).apply {
-                                                        addCategory(Intent.CATEGORY_OPENABLE)
-                                                        type = "application/zip"
-                                                        putExtra(Intent.EXTRA_STREAM, uri)
-                                                        putExtra(Intent.EXTRA_TITLE, filename)
-                                                        flags = Intent.FLAG_GRANT_READ_URI_PERMISSION
-                                                    }
-                                                context.startActivity(
-                                                    Intent.createChooser(
-                                                        savefile,
-                                                        context.getString(R.string.save_log)
-                                                    )
-                                                )
-                                            }
+                                            val formatter = DateTimeFormatter.ofPattern("yyyy-MM-dd_HH_mm")
+                                            val current = LocalDateTime.now().format(formatter)
+                                            exportBugreportLauncher.launch("KernelSU_bugreport_${current}.tar.gz")
+                                            showBottomsheet = false
                                         }
                                 ) {
                                     Icon(
@@ -256,7 +284,6 @@ fun SettingScreen(navigator: DestinationsNavigator) {
 
                                     )
                                 }
-
                             }
                             Box {
                                 Column(
@@ -277,10 +304,11 @@ fun SettingScreen(navigator: DestinationsNavigator) {
                                                         bugreport
                                                     )
 
-                                                val shareIntent = Intent(Intent.ACTION_SEND)
-                                                shareIntent.putExtra(Intent.EXTRA_STREAM, uri)
-                                                shareIntent.setDataAndType(uri, "application/zip")
-                                                shareIntent.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                val shareIntent = Intent(Intent.ACTION_SEND).apply {
+                                                    putExtra(Intent.EXTRA_STREAM, uri)
+                                                    setDataAndType(uri, "application/gzip")
+                                                    addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION)
+                                                }
 
                                                 context.startActivity(
                                                     Intent.createChooser(
@@ -305,43 +333,39 @@ fun SettingScreen(navigator: DestinationsNavigator) {
                                                 trim = LineHeightStyle.Trim.None
                                             )
                                         }
-
                                     )
                                 }
-
                             }
                         }
                     }
                 )
-
-
             }
 
             val shrink = stringResource(id = R.string.shrink_sparse_image)
             val shrinkMessage = stringResource(id = R.string.shrink_sparse_image_message)
-            ListItem(
-                leadingContent = {
-                    Icon(
-                        Icons.Filled.Compress,
-                        shrink
-                    )
-                },
-                headlineContent = { Text(shrink) },
-                modifier = Modifier.clickable {
-                    scope.launch {
-                        val result =
-                            shrinkDialog.awaitConfirm(title = shrink, content = shrinkMessage)
-                        if (result == ConfirmResult.Confirmed) {
-                            loadingDialog.withLoading {
-                                shrinkModules()
+            KsuIsValid() {
+                ListItem(
+                    leadingContent = {
+                        Icon(
+                            Icons.Filled.Compress,
+                            shrink
+                        )
+                    },
+                    headlineContent = { Text(shrink) },
+                    modifier = Modifier.clickable {
+                        scope.launch {
+                            val result = shrinkDialog.awaitConfirm(title = shrink, content = shrinkMessage)
+                            if (result == ConfirmResult.Confirmed) {
+                                loadingDialog.withLoading {
+                                    shrinkModules()
+                                }
                             }
                         }
                     }
-                }
-            )
+                )
+            }
 
-            val lkmMode =
-                Natives.version >= Natives.MINIMAL_SUPPORTED_KERNEL_LKM && Natives.isLkmMode
+            val lkmMode = Natives.version >= Natives.MINIMAL_SUPPORTED_KERNEL_LKM && Natives.isLkmMode
             if (lkmMode) {
                 UninstallItem(navigator) {
                     loadingDialog.withLoading(it)
@@ -353,7 +377,7 @@ fun SettingScreen(navigator: DestinationsNavigator) {
                 leadingContent = {
                     Icon(
                         Icons.Filled.ContactPage,
-                        stringResource(id = R.string.about)
+                        about
                     )
                 },
                 headlineContent = { Text(about) },

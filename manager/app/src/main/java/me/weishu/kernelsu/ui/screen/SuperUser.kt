@@ -4,17 +4,15 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.ExperimentalMaterialApi
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.MoreVert
-import androidx.compose.material.pullrefresh.PullRefreshIndicator
-import androidx.compose.material.pullrefresh.pullRefresh
-import androidx.compose.material.pullrefresh.rememberPullRefreshState
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.nestedscroll.nestedScroll
@@ -43,10 +41,18 @@ fun SuperUserScreen(navigator: DestinationsNavigator) {
     val viewModel = viewModel<SuperUserViewModel>()
     val scope = rememberCoroutineScope()
     val scrollBehavior = TopAppBarDefaults.pinnedScrollBehavior(rememberTopAppBarState())
+    val listState = rememberLazyListState()
 
-    LaunchedEffect(Unit) {
+    LaunchedEffect(key1 = navigator) {
+        viewModel.search = ""
         if (viewModel.appList.isEmpty()) {
             viewModel.fetchAppList()
+        }
+    }
+
+    LaunchedEffect(viewModel.search) {
+        if (viewModel.search.isEmpty()) {
+            listState.scrollToItem(0)
         }
     }
 
@@ -99,16 +105,15 @@ fun SuperUserScreen(navigator: DestinationsNavigator) {
         },
         contentWindowInsets = WindowInsets.safeDrawing.only(WindowInsetsSides.Top + WindowInsetsSides.Horizontal)
     ) { innerPadding ->
-        val refreshState = rememberPullRefreshState(
-            refreshing = viewModel.isRefreshing,
-            onRefresh = { scope.launch { viewModel.fetchAppList() } },
-        )
-        Box(
-            modifier = Modifier
-                .padding(innerPadding)
-                .pullRefresh(refreshState)
+        PullToRefreshBox(
+            modifier = Modifier.padding(innerPadding),
+            onRefresh = {
+                scope.launch { viewModel.fetchAppList() }
+            },
+            isRefreshing = viewModel.isRefreshing
         ) {
             LazyColumn(
+                state = listState,
                 modifier = Modifier
                     .fillMaxSize()
                     .nestedScroll(scrollBehavior.nestedScrollConnection)
@@ -117,15 +122,8 @@ fun SuperUserScreen(navigator: DestinationsNavigator) {
                     AppItem(app) {
                         navigator.navigate(AppProfileScreenDestination(app))
                     }
-
                 }
             }
-
-            PullRefreshIndicator(
-                refreshing = viewModel.isRefreshing,
-                state = refreshState,
-                modifier = Modifier.align(Alignment.TopCenter)
-            )
         }
     }
 }
