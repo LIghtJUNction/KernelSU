@@ -1,5 +1,10 @@
 # 如何为非 GKI 内核集成 KernelSU {#introduction}
 
+::: warning
+该文档仅供存档参考，不再维护更新。
+自 KernelSU v1.0 版本之后，我们放弃了对非 GKI 设备的官方支持。
+:::
+
 KernelSU 可以被集成到非 GKI 内核中，现在它最低支持到内核 4.14 版本；理论上也可以支持更低的版本。
 
 由于非 GKI 内核的碎片化极其严重，因此通常没有统一的方法来编译它，所以我们也无法为非 GKI 设备提供 boot 镜像。但你完全可以自己集成 KernelSU 然后编译内核使用。
@@ -41,7 +46,7 @@ CONFIG_KPROBE_EVENTS=y
 
 :::tip 如何验证是否是 kprobe 的问题？
 
-注释掉 `KernelSU/kernel/ksu.c` 中 `ksu_enable_sucompat()` 和 `ksu_enable_ksud()`，如果正常开机，那么就是 kprobe 的问题；或者你可以手动尝试使用 kprobe 功能，如果不正常，手机会直接重启。
+注释掉 `KernelSU/kernel/ksu.c` 中 `ksu_sucompat_init()` 和 `ksu_ksud_init()`，如果正常开机，那么就是 kprobe 的问题；或者你可以手动尝试使用 kprobe 功能，如果不正常，手机会直接重启。
 :::
 
 ## 手动修改内核源码 {#modify-kernel-source-code}

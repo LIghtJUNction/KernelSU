@@ -4,6 +4,18 @@ KernelSU はシステムパーティションの整合性を維持しながら�
 
 KernelSU のモジュール機構は、Magisk とほぼ同じです。Magisk のモジュール開発に慣れている方であれば、KernelSU のモジュール開発も簡単でしょう。その場合は以下のモジュールの紹介は読み飛ばして、[Magisk との違い](difference-with-magisk.md)の内容だけ読めばOKです。
 
+::: warning METAMODULE はシステムファイル変更時のみ必要
+KernelSU は [metamodule](metamodule.md) アーキテクチャを使用して `system` ディレクトリをマウントします。**モジュールが `/system` ファイルを変更する必要がある場合のみ**（`system` ディレクトリ経由で）、metamodule ([meta-overlayfs](https://github.com/tiann/KernelSU/releases)など) をインストールする必要があります。スクリプト、sepolicy ルール、system.propなどの他のモジュール機能は metamodule なしで動作します。
+:::
+
+## WebUI
+
+KernelSU modules support displaying interfaces and interacting with users. See the [WebUI documentation](module-webui.md) for more information.
+
+## モジュール設定
+
+KernelSU は、モジュールが永続的または一時的なキー値設定を保存できる組み込みの設定システムを提供します。詳細については、[モジュール設定ドキュメント](module-config.md)を参照してください。
+
 ## Busybox
 
 KernelSU には、機能的に完全な Busybox バイナリ (SELinux の完全サポートを含む) が同梱されています。実行ファイルは `/data/adb/ksu/bin/busybox` に配置されています。KernelSU の Busybox はランタイムに切り替え可能な「ASH スタンドアローンシェルモード」をサポートしています。このスタンドアロンモードとは、Busybox の `ash` シェルで実行する場合 `PATH` として設定されているものに関係なく、すべてのコマンドが Busybox 内のアプレットを直接使用するというものです。たとえば、`ls`、`rm`、`chmod` などのコマンドは、`PATH` にあるもの（Android の場合、デフォルトではそれぞれ `/system/bin/ls`, `/system/bin/rm`, `/system/bin/chmod`）ではなく、直接 Busybox 内部のアプレットを呼び出すことになります。これにより、スクリプトは常に予測可能な環境で実行され、どの Android バージョンで実行されていても常にコマンドを利用できます。Busybox を使用しないコマンドを強制的に実行するには、フルパスで実行ファイルを呼び出す必要があります。
@@ -57,6 +69,9 @@ KernelSU モジュールは、`/data/adb/modules` に配置された以下の構
 |   ├── uninstall.sh        <--- このスクリプトは KernelSU がモジュールを削除するときに実行されます
 │   ├── system.prop         <--- このファイルのプロパティは resetprop によってシステムプロパティとして読み込まれます
 │   ├── sepolicy.rule       <--- カスタム SEPolicy ルールを追加します
+│   ├── initrc/             <--- このディレクトリ内の .rc ファイルは起動時に init.rc に挿入されます
+│   │   ├── myservice.rc
+│   │   └── ...
 │   │
 │   │      *** 自動生成されるため、手動で作成または変更しないでください ***
 │   │
@@ -91,6 +106,9 @@ version=<string>
 versionCode=<int>
 author=<string>
 description=<string>
+updateJson=<url> (optional)
+actionIcon=<path> (optional)
+webuiIcon=<path> (optional)
 ```
 
 - `id` はこの正規表現に一致していなければいけません: `^[a-zA-Z][a-zA-Z0-9._-]+$`<br>
@@ -99,6 +117,11 @@ description=<string>
 - `versionCode` は **integer** です。バージョンの比較に使います。
 - 他のものには**単一行** の文字であれば何でも使えます。
 - 改行文字は `UNIX (LF)` を使ってください。`Windows (CR+LF)` や `Macintosh (CR)` は使ってはいけません。
+- `actionIcon` と `webuiIcon` は、マネージャーアプリ内に表示される**モジュールアクションのショートカット**および**WebUI ショートカット**の既定アイコンとして使用される、任意指定の画像パスです。これらのパスは、モジュール ディレクトリを基準として指定する必要があります。例えば、`actionIcon=icon/icon.png` は `<MODDIR>/icon/icon.png` を指します。
+
+::: tip 動的説明
+`description` フィールドは、モジュール設定システムを使用して実行時に動的にオーバーライドできます。詳細は[モジュール説明のオーバーライド](module-config.md#overriding-module-description)を参照してください。
+:::
 
 ### シェルスクリプト
 
@@ -156,6 +179,80 @@ OverlayFS に興味があれば、Linux カーネルの [OverlayFS のドキュ�
 
 もしあなたのモジュールが追加の SEPolicy パッチを必要とする場合は、それらのルールをこのファイルに追加してください。このファイルの各行は、ポリシーステートメントとして扱われます。
 
+### initrc の挿入 {#initrc-injection}
+
+KernelSUは、カスタムの Android Init RC ディレクティブをシステムの `init.rc` に挿入するメカニズムを提供します。これにより、モジュールはシステムパーティションを変更することなく、カスタムAndroidサービスの登録、プロパティトリガーの設定、またはその他のInit言語アクションの実行を行うことができます。
+
+起動中に、KernelSUカーネルモジュールは `read()` および `fstat()` システムコールをインターセプトします。Android initプロセスが `/system/etc/init/hw/init.rc` を読み取るときに、KernelSUはカスタムRCコンテンツをファイルの末尾に透過的に追加します。initプロセスは、元の init.rc コンテンツと同じように、これらの挿入されたディレクティブを解析します。
+
+ユーザースペース側では、ksudが有効になっているモジュールからのすべての `.rc` ファイルを連結して1つの `modules.rc` ファイルを作成し、`/metadata` パーティションに保存します。このファイルは、モジュールの状態（インストール、有効化、無効化、アンインストールなど）が変更されるたびに自動的に再生成されます。
+
+#### モジュール initrc ファイル
+
+モジュールディレクトリに `initrc/` サブディレクトリを作成し、そこに `.rc` ファイルを配置します。
+
+```txt
+/data/adb/modules/<MODID>/
+├── initrc/
+│   ├── myservice.rc
+│   └── another.rc
+└── ...
+```
+
+::: tip
+- ファイルの拡張子は `.rc` である必要があります。
+- モジュールが有効になっている限り、`initrc/` ディレクトリ内のすべての `.rc` ファイルが含まれます（実行権限は必要ありません）。
+- ファイルはディレクトリ内で**ファイル名のアルファベット順**に処理され、モジュールは**モジュールIDのアルファベット順**に処理されます。
+:::
+
+#### 一般的な initrc ファイル
+
+モジュールレベルのRCファイルに加えて、グローバルディレクトリに `.rc` ファイルを配置することもできます。
+
+```txt
+/data/adb/initrc.d/
+├── myservice.rc
+└── another.rc
+```
+
+::: warning 一般的な initrc ファイルには実行権限が必要です
+モジュールの `initrc/` ディレクトリとは異なり、`/data/adb/initrc.d/` 内のファイルを含めるには**実行権限が必要**です。実行不可能な `.rc` ファイルは静かにスキップされます。
+:::
+
+一般的な `initrc.d/` ファイルは、モジュールのRCファイルよりも前に処理されます。
+
+#### 例
+
+カスタムAndroidサービスを登録する `.rc` ファイルの例を次に示します。
+
+```rc
+service myservice /data/adb/modules/mymodule/bin/myservice
+    user root
+    group root
+    disabled
+    seclabel u:r:ksu:s0
+
+on property:sys.boot_completed=1
+    start myservice
+```
+
+このファイルが `/data/adb/modules/mymodule/initrc/myservice.rc` に配置されている場合、起動時に `myservice` という名前のサービスを登録し、`sys.boot_completed=1` に達したときにサービスを開始します。
+
+#### 手動更新
+
+次のコマンドを使用して、`modules.rc` の再生成を手動でトリガーできます（変更は次回の起動時に有効になります）。
+
+```sh
+ksud initrc refresh
+```
+
+::: tip
+- initrc の挿入は、起動プロセスの非常に早い段階（init が init.rc を読み取るとき）で、post-fs-data およびモジュールスクリプトが実行される**前**に行われます。
+- 挿入されたRCコンテンツは、元の init.rc の一部として init によって扱われ、すべての Android Init 言語構文（サービス定義、トリガー、プロパティ設定など）をサポートします。
+- initrc の挿入は、システムコールフックがインストールされないため、**late-load モード**では**使用できません**。
+- ksudでイメージにパッチを当てる際に `--no-custom-rc` パラメータを渡すことで、モジュールRCの挿入を無効にすることができます。
+:::
+
 ## モジュールのインストーラー
 
 KernelSU モジュールインストーラーは、KernelSU Manager アプリでインストールできる、ZIP ファイルにパッケージされた KernelSU モジュールです。最もシンプルな KernelSU モジュールインストーラーは、KernelSU モジュールを ZIP ファイルとしてパックしただけのものです。
@@ -195,6 +292,9 @@ KernelSU モジュールは、カスタムリカバリーからのインスト�
 - `ARCH` (string): デバイスの CPU アーキテクチャ。値は `arm`、`arm64`、`x86`、`x64` のいずれか
 - `IS64BIT` (bool): `ARCH` が `arm64` または `x64` のときは `true` 
 - `API` (int): 端末の API レベル・Android のバージョン（例：Android 6.0 なら`23`）
+- `KSU_UAPI_VER` (int): KernelSU ユーザー空間 (ksud) の UAPI バージョン（例：`2`）。カーネルドライバーに破壊的変更がある場合にこのバージョンが更新されます。モジュールはこの値で互換性を確認できます。
+- `KSU_RUNTIME_MODE` (string): KernelSU の現在の実行モード。値は `built-in`（GKI モード、カーネルに組み込み）、`lkm`（起動時にカーネルモジュールとして読み込み）、または `late-load`（起動後にカーネルモジュールとして読み込み）のいずれかです。
+- `KSU_LATE_LOAD` (int?): KernelSU が起動後に遅延読み込みされた場合、この変数の値は `1` になります。それ以外の場合、この変数は設定されません。
 
 ::: warning 警告
 KernelSU では、MAGISK_VER_CODE は常に25200、MAGISK_VER は常にv25.2です。この2つの変数で KernelSU 上で動作しているかどうかを判断するのはやめてください。
@@ -253,3 +353,72 @@ KernelSU では、起動スクリプトは保存場所によって一般スク�
   - `post-fs-data.sh` は post-fs-data モードで実行され、`service.sh` は late_start サービスモードで実行されます
 
 すべてのブートスクリプトは、KernelSU の Busybox `ash` シェルで「スタンドアロンモード」を有効にした状態で実行されます。
+
+## Late-load モード {#late-load-mode}
+
+上記の標準起動フローに加えて、KernelSU は LKM（ローダブルカーネルモジュール）シナリオ向けの **late-load モード** をサポートしています。このモードでは、KernelSU カーネルモジュールは init プロセス中ではなく、**システムが完全に起動した後** にロードされます。
+
+### late-load はいつ発生するか？
+
+`ksud late-load` コマンドを実行することでトリガーされます。このコマンドは：
+
+1. 現在の KMI バージョンを検出し、組み込みアセットから対応する `kernelsu.ko` をロードします。
+2. 通常起動時に行われるモジュールの初期化（SELinux ルール、許可リスト、機能など）を実行します。
+
+システムが既に完全に稼働しているため、起動時の特定のメカニズムは利用不可または不要です。
+
+### 標準起動との違い
+
+| 動作 | 標準起動 | Late-load モード |
+|------|:---:|:---:|
+| カーネルモジュールが init (PID 1) によりロード | はい | いいえ（起動後にロード） |
+| initrc 挿入 (モジュールの `.rc` ファイルを init.rc に挿入) | はい | 利用不可 |
+| ksud の kprobe フック (execve/read/fstat/input) | はい | スキップ |
+| セーフモード検出（音量キー） | はい | 常に無効 |
+| 起動ログのキャプチャ (logcat/dmesg) | はい | スキップ |
+| Magisk 共存チェック | はい | スキップ |
+| `post-fs-data` イベントのカーネル通知 | はい | スキップ |
+| `boot-completed` イベントのカーネル通知 | はい | 初期化時に直接設定 |
+| `post-fs-data.sh` / `post-fs-data.d/` スクリプト | はい | `late-load` ステージで代替 |
+| `system.prop` の読み込み | はい | はい |
+| OverlayFS マウント（metamodule） | はい | はい |
+| `post-mount.sh` / `post-mount.d/` スクリプト | はい | はい |
+| `service.sh` / `service.d/` スクリプト | はい | はい |
+| `boot-completed.sh` / `boot-completed.d/` スクリプト | はい | はい |
+| 環境変数 `KSU_LATE_LOAD` | 未設定 | `1` に設定 |
+| カーネル info フラグ `0x4` | 未設定 | 設定済み |
+
+### スクリプト実行順序
+
+late-load モードでのスクリプト実行順序は以下の通りです：
+
+```txt
+ksud late-load:
+  1. kernelsu.ko をロード（まだロードされていない場合）
+  2. バイナリの展開、モジュール更新の処理、SELinux ルールの読み込み、機能の初期化
+  3. late-load.d/ の汎用スクリプトとモジュールの late-load スクリプトを実行（ブロッキング）
+  4. system.prop を読み込み (resetprop -n)
+  5. metamodule マウントスクリプトを実行（OverlayFS マウント）
+  6. post-mount.d/ の汎用スクリプトとモジュールの post-mount.sh を実行（ブロッキング）
+  7. service.d/ の汎用スクリプトとモジュールの service.sh を実行（ノンブロッキング）
+  8. boot-completed.d/ の汎用スクリプトとモジュールの boot-completed.sh を実行（ノンブロッキング）
+```
+
+### Late-load 専用スクリプト
+
+モジュールは `late-load.sh` スクリプトを提供でき、このスクリプトは **late-load モードでのみ** 実行され、`post-fs-data.sh` の代替として機能します。このスクリプトは OverlayFS マウント前に実行され、標準フローの `post-fs-data.sh` と同様のタイミングです。
+
+また、汎用スクリプトを `/data/adb/late-load.d/` に配置して、このステージで実行することもできます。
+
+### スクリプト内で late-load モードを検出する
+
+モジュールは環境変数 `KSU_LATE_LOAD` をチェックすることで late-load モードかどうかを検出できます：
+
+```sh
+if [ "$KSU_LATE_LOAD" = "1" ]; then
+    # late-load モードで実行中
+    echo "Late-load mode detected"
+fi
+```
+
+これにより、モジュールは自身の動作を調整できます。例えば、早期起動時にのみ必要な操作をスキップできます。

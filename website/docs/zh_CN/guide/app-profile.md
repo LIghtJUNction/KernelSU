@@ -76,7 +76,7 @@ SELinux 的完整概念比较复杂，我们这里不打算讲解它的具体工
 
 KernelSU 的 Root Profile 可以自定义执行 `su` 后 root 进程的 SELinux context，并且可以针对这个 context 设置特定的访问控制规则，从而更加精细化地控制 root 权限。
 
-通常情况下，应用执行 `su` 后，会将进程切换到一个 **不受任何限制** 的 SELinux 域，比如 `u:r:su:s0`，通过 Root Profile，我们可以将它切换到一个自定义的域，比如 `u:r:app1:s0`，然后为这个域制定一系列规则：
+通常情况下，应用执行 `su` 后，会将进程切换到一个 **不受任何限制** 的 SELinux 域，比如 `u:r:ksu:s0`，通过 Root Profile，我们可以将它切换到一个自定义的域，比如 `u:r:app1:s0`，然后为这个域制定一系列规则：
 
 ```sh
 type app1
@@ -96,10 +96,13 @@ allow app1 * * *
 1. 第一次执行 `su`，由于 App Profile 强制生效，会正常切换到 UID 为 `2000(adb shell)` 而非 `0(root)`。
 2. 第二次执行 `su`，由于此时它 UID 是 `2000`，而你给 `2000(adb shell)` 配置了允许 root，它会获得完整的 root 权限！
 
-:::warning 注意
-这是完全符合预期的行为，并非 BUG！因此我们建议：
+:::tip 提示
+你可以在自定义 `App Profile` 中启用 `NO_NEW_PRIVS` 标志。
 
-如果你的确需要给 adb 授予 root 权限（比如你是开发者），那么不建议你在配置 Root Profile 的时候将 UID 改成 `2000`，用 `1000(system)` 会更好。
+这样可以防止该进程再次通过 `su` 命令逃逸并提升权限。
+
+但是，此标志**仅**阻止 KernelSU 为该进程提升权限，它仍然可以利用其他 Linux 机制来逃逸。
+因此，请务必注意你的权限设置。
 :::
 
 ## Non Root Profile

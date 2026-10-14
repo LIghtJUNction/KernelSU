@@ -15,7 +15,7 @@
 ## 特色功能
 
 1. 以核心內 `su` 管理 Root 存取。
-2. 以 [OverlayFS](https://zh.wikipedia.org/zh-tw/OverlayFS) 運作模組系統。
+2. 以 [metamodules](https://kernelsu.org/zh_TW/guide/metamodule.html) 運作模組系統：可插拔的無系統修改基礎架構。
 3. [App Profile](https://kernelsu.org/zh_TW/guide/app-profile.html)：使 Root 掌握的生殺大權受制於此。
 
 ## 相容事態
@@ -24,7 +24,10 @@
 
 另可在 WSA、ChromeOS 一類的容器式 Android 中運作。
 
-目前僅適用 `arm64-v8a` 以及 `x86_64` 架構。
+目前支援 `arm64-v8a` 和 `x86_64` 架構。
+
+> [!CAUTION]
+> 最近的核心版本引入了一項破壞性更改，導致 KernelSU 在 `x86_64` 上執行失敗，甚至可能引發核心恐慌 (kernel panic)！請查看網站獲取更多資訊！
 
 ## 使用手冊
 

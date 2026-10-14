@@ -1,5 +1,10 @@
 # 如何為非 GKI 核心整合 KernelSU {#how-to-integrate-kernelsu-for-non-gki-kernels}
 
+::: warning
+該文件僅供存檔參考，不再維護更新。
+自 KernelSU v1.0 版本之後，我們放棄了對非 GKI 裝置的官方支援。
+:::
+
 KernelSU 可以被整合到非 GKI 核心中，現在它最低支援到核心 4.14 版本；理論上也可以支援更低的版本。
 
 由於非 GKI 核心的片段化極其嚴重，因此通常沒有統一的方法來建置它，所以我們也無法為非 GKI 裝置提供 Boot 映像。但您完全可以自行整合 KernelSU 並建置核心以繼續使用。
@@ -41,7 +46,7 @@ CONFIG_KPROBE_EVENTS=y
 
 :::tip 如何檢查 kprobe 是否損毀？
 
-將 `KernelSU/kernel/ksu.c` 中的 `ksu_enable_sucompat()` 和 `ksu_enable_ksud()` 註解掉，如果正常開機，即 kprobe 已損毀；或者您可以手動嘗試使用 kprobe 功能，如果不正常，手機會直接重新啟動。
+將 `KernelSU/kernel/ksu.c` 中的 `ksu_sucompat_init()` 和 `ksu_ksud_init()` 註解掉，如果正常開機，即 kprobe 已損毀；或者您可以手動嘗試使用 kprobe 功能，如果不正常，手機會直接重新啟動。
 :::
 
 :::info 如何為非 GKI 核心啟用卸載模組功能

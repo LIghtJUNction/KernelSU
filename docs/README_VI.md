@@ -15,7 +15,7 @@ Giải pháp root thông qua thay đổi trên Kernel hệ điều hành cho cá
 ## Tính năng
 
 1. Hỗ trợ gói thực thi `su` và quản lý quyền root.
-2. Hệ thống mô-đun thông qua [OverlayFS](https://en.wikipedia.org/wiki/OverlayFS).
+2. Hệ thống mô-đun thông qua [metamodules](https://kernelsu.org/vi_VN/guide/metamodule.html): Cơ sở hạ tầng có thể cắm cho các sửa đổi systemless.
 3. [App Profile](https://kernelsu.org/guide/app-profile.html): Hạn chế quyền root của ứng dụng.
 
 ## Tình trạng tương thích
@@ -24,7 +24,10 @@ KernelSU chính thức hỗ trợ các thiết bị Android với kernel GKI 2.0
 
 WSA, ChromeOS và Android dựa trên container(container-based) cũng được hỗ trợ bởi KernelSU.
 
-Hiên tại Giao diện nhị phân của ứng dụng (ABI) được hỗ trợ bao gồm `arm64-v8a` và `x86_64`.
+Hiện tại, các kiến trúc `arm64-v8a` và `x86_64` được hỗ trợ.
+
+> [!CAUTION]
+> Các phiên bản kernel gần đây đã áp dụng một thay đổi lớn có thể khiến KernelSU gặp lỗi và có khả năng gây ra kernel panic trên `x86_64`! Hãy kiểm tra trang web để biết thêm thông tin!
 
 ## Sử dụng
 

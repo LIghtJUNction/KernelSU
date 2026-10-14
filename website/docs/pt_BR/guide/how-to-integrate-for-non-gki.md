@@ -1,5 +1,10 @@
 # Integração para dispositivos não-GKI
 
+::: warning
+Este documento é apenas para referência de arquivo e não é mais mantido.
+Desde o KernelSU v1.0, abandonamos o suporte oficial para dispositivos não-GKI.
+:::
+
 O KernelSU pode ser integrado a kernels não-GKI e foi portado para 4.14 e versões anteriores.
 
 Devido à fragmentação dos kernels não-GKI, não temos um método universal para construí-lo, portanto, não podemos fornecer o boot.img não-GKI. No entanto, você pode compilar o kernel com o KernelSU integrado por conta própria.
@@ -40,7 +45,7 @@ Se você descobrir que o KPROBES ainda não está ativado, pode tentar ativar `C
 Porém, se você entrar em um bootloop após integrar o KernelSU, isso pode indicar que o **kprobe está quebrado no seu kernel**, o que significa que você precisará corrigir o bug do kprobe ou usar outra maneira.
 
 ::: tip COMO VERIFICAR SE O KPROBE ESTÁ QUEBRADO?
-Comente `ksu_enable_sucompat()` e `ksu_enable_ksud()` em `KernelSU/kernel/ksu.c`, se o dispositivo inicializar normalmente, então o kprobe pode estar quebrado.
+Comente `ksu_sucompat_init()` e `ksu_ksud_init()` em `KernelSU/kernel/ksu.c`, se o dispositivo inicializar normalmente, então o kprobe pode estar quebrado.
 :::
 
 ::: info COMO FAZER COM QUE O RECURSO DE DESMONTAR MÓDULOS FUNCIONE NO PRÉ-GKI?

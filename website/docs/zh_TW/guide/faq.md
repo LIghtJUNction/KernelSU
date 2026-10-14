@@ -12,7 +12,7 @@
 
 ## KernelSU 是否支援模組？
 
-支援，但它是早期版本，可能存在問題。請等候它逐漸穩定 :)
+支援，大多數 Magisk 模組都可以在 KernelSU 上運作。但是，如果您的模組需要修改 `/system` 檔案，您需要安裝 [metamodule](metamodule.md)(如 `meta-overlayfs`)。其他模組功能無需 metamodule 即可運作。請參閱 [模組指南](module.md) 以獲取更多資訊。
 
 ## KernelSU 是否支援 Xposed ？
 
@@ -69,12 +69,12 @@ GKI1 與 GKI2 完全不同，所以您需要自行編譯核心。
 ## KernelSU 可以修改 Hosts 嗎？ 我要怎麼使用 AdAway？
 當然。但是 KernelSU 沒有內建的 Hosts 支持，您可以安裝 [systemless-hosts](https://github.com/symbuzzer/systemless-hosts-KernelSU-module) 來做到這一點。
 
-## 為什麼會有 1TB 的龐大檔案？
+## 為什麼全新安裝後模組不工作？
 
-1 TB 大小的 `modules.img` 是一個磁碟映像文件，不用擔心它的大小，它是一種特殊類型的文件，稱為稀疏檔案，它的實際大小只有你使用的模組的大小，並且在你刪除模組後會動態縮小；實際上並沒有佔用1TB的磁碟空間（實際上你的手機可能並沒有那麼多空間）。
+如果您的模組需要修改 `/system` 檔案，您需要安裝 [metamodule](metamodule.md) 來掛載 `system` 目錄。其他模組功能(腳本、sepolicy、system.prop)無需 metamodule 即可運作。
 
-如果你確實對檔案的大小不滿意，可以使用 `resize2fs -M` 指令將其調整為實際大小；但此時模組可能無法正常運作，我們不會這種情況提供任何支援。
+**解決方案**：參閱 [Metamodule 指南](metamodule.md) 獲取安裝說明。
 
-## 為什麼我的設備顯示錯誤的儲存空間大小？
+## 什麼是 metamodule，為什麼需要它？
 
-某些裝置使用非正規方法來計算裝置的儲存大小，可能會導致系統應用程式的儲存空間計算不準確，特別是在處理 1 TB 的稀疏檔案時。雖然這個問題似乎是三星設備特有的，僅影響三星應用程式和服務，但必須注意的是，差異主要在於總儲存大小，可用空間運算仍然準確。
+Metamodule 是一個特殊模組，為掛載常規模組提供基礎架構。請參閱 [Metamodule 指南](metamodule.md) 獲取完整說明。

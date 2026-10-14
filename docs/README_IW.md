@@ -15,7 +15,7 @@
 ## תכונות
 
 1. ניהול root ו־`su` מבוססים על Kernel.
-2. מערכת מודולים מבוססת [OverlayFS](https://en.wikipedia.org/wiki/OverlayFS).
+2. מערכת מודולים מבוססת [metamodules](https://kernelsu.org/guide/metamodule.html): תשתית מודולרית לשינויים systemless.
 3. [פרופיל אפליקציה](https://kernelsu.org/guide/app-profile.html): נעילת גישת root בכלוב.
 
 ## מצב תאימות
@@ -24,7 +24,10 @@ KernelSU תומך במכשירי Android GKI 2.0 (kernel 5.10+) באופן רש�
 
 באמצעות זה, תמיכה זמינה גם ל-WSA, ChromeOS ומכשירי Android המבוססים על מיכלים.
 
-כרגע, רק `arm64-v8a` ו־`x86_64` נתמכים.
+כיום, נתמכות הארכיטקטורות `arm64-v8a` ו-`x86_64`.
+
+> [!CAUTION]
+> גרסאות קרנל אחרונות יישמו שינוי שובר תאימות הגורם ל-KernelSU להיכשל ועלול לעורר kernel panic ב-`x86_64`! בדוק באתר למידע נוסף!
 
 ## שימוש
 

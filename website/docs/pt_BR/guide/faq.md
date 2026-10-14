@@ -16,7 +16,7 @@ Certamente, sim.
 
 ## KernelSU suporta módulos?
 
-Sim, a maioria dos módulos Magisk funcionam no KernelSU. Verifique [Guias de módulo](module.md) para mais informações.
+Sim, a maioria dos módulos Magisk funcionam no KernelSU. No entanto, se seu módulo precisar modificar arquivos `/system`, você precisa instalar um [metamodule](metamodule.md) (como `meta-overlayfs`). Outros recursos de módulos funcionam sem um metamodule. Confira o [Guia de módulos](module.md) para mais informações.
 
 ## KernelSU suporta Xposed?
 
@@ -25,6 +25,16 @@ Sim, você pode usar LSPosed (ou outro derivado moderno do Xposed) com [ZygiskNe
 ## KernelSU suporta Zygisk?
 
 KernelSU não tem suporte integrado ao Zygisk, mas você pode usar um módulo como [ZygiskNext](https://github.com/Dr-TSNG/ZygiskNext) para suportá-lo.
+
+## Por que meus módulos não funcionam após uma instalação nova?
+
+Se seus módulos precisam modificar arquivos `/system`, você precisa instalar um [metamodule](metamodule.md) para montar o diretório `system`. Outros recursos de módulos (scripts, sepolicy, system.prop) funcionam sem um metamodule.
+
+**Solução**: Consulte o [Guia de Metamodule](metamodule.md) para instruções de instalação.
+
+## O que é um metamodule e por que preciso dele?
+
+Um metamodule é um módulo especial que fornece infraestrutura para montar módulos regulares. Consulte o [Guia de Metamodule](metamodule.md) para uma explicação completa.
 
 ## KernelSU é compatível com o Magisk?
 
@@ -70,13 +80,3 @@ Não recomendamos que você modifique a partição do sistema diretamente. Por f
 ## KernelSU pode modificar hosts? Como posso usar AdAway?
 
 Claro. Mas o KernelSU não tem suporte a hosts integrados, você pode instalar um módulo como [systemless-hosts](https://github.com/symbuzzer/systemless-hosts-KernelSU-module) para fazer isso.
-
-## Por que existe um enorme arquivo de 1 TB?
-
-O arquivo `modules.img` de 1 TB é um arquivo de imagem de disco. **Não se preocupe com seu tamanho**; ele é um tipo especial de arquivo conhecido como [arquivo esparso](https://en.wikipedia.org/wiki/Sparse_file). Seu tamanho real é apenas o tamanho do módulo que você usa e diminuirá dinamicamente após a exclusão do módulo. Na verdade, ele não ocupa 1 TB de espaço em disco (seu celular pode não ter tanto espaço).
-
-Se você realmente se incomodar com o tamanho desse arquivo, você pode usar o comando `resize2fs -M` para ajustá-lo ao tamanho real. Porém, o módulo pode não funcionar corretamente nesse caso, e não forneceremos suporte para isso.
-
-## Por que meu dispositivo mostra o tamanho de armazenamento errado?
-
-Certos dispositivos usam métodos não padrão para calcular o tamanho de armazenamento do dispositivo, o que pode levar a cálculos imprecisos nos apps e menus do sistema, especialmente ao lidar com arquivos esparsos de 1 TB. Embora esse problema pareça ser específico para os dispositivos Samsung, afetando principalmente os apps e serviços da Samsung, é importante observar que a discrepância está principalmente no tamanho total do armazenamento, enquanto o cálculo do espaço livre permanece preciso.

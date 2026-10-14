@@ -4,6 +4,18 @@ KernelSU menyediakan mekanisme modul yang mencapai efek memodifikasi direktori s
 
 Mekanisme modul KernelSU hampir sama dengan Magisk. Jika Anda terbiasa dengan pengembangan modul Magisk, mengembangkan modul KernelSU sangat mirip. Anda dapat melewati pengenalan modul di bawah ini dan hanya perlu membaca [difference-with-magisk](difference-with-magisk.md).
 
+::: warning METAMODULE HANYA DIPERLUKAN UNTUK MODIFIKASI FILE SISTEM
+KernelSU menggunakan arsitektur [metamodule](metamodule.md) untuk me-mount direktori `system`. **Hanya jika modul Anda perlu memodifikasi file `/system`** (melalui direktori `system`) Anda perlu menginstal metamodule (seperti [meta-overlayfs](https://github.com/tiann/KernelSU/releases)). Fitur modul lainnya seperti skrip, aturan sepolicy, dan system.prop bekerja tanpa metamodule.
+:::
+
+## WebUI
+
+Modul KernelSU mendukung tampilan antarmuka dan interaksi dengan pengguna. Lihat [WebUI documentation](module-webui.md) untuk detailnya.
+
+## Konfigurasi Modul
+
+KernelSU menyediakan sistem konfigurasi bawaan yang memungkinkan modul menyimpan pengaturan key-value persisten atau sementara. Untuk detail lebih lanjut, lihat [dokumentasi Konfigurasi Modul](module-config.md).
+
 ## Busybox
 
 KernelSU dikirimkan dengan fitur biner BusyBox yang lengkap (termasuk dukungan penuh SELinux). Eksekusi terletak di `/data/adb/ksu/bin/busybox`. BusyBox KernelSU mendukung "Mode Shell Standalone Shell" yang dapat dialihkan waktu proses. Apa yang dimaksud dengan mode mandiri ini adalah bahwa ketika dijalankan di shell `ash` dari BusyBox, setiap perintah akan langsung menggunakan applet di dalam BusyBox, terlepas dari apa yang ditetapkan sebagai `PATH`. Misalnya, perintah seperti `ls`, `rm`, `chmod` **TIDAK** akan menggunakan apa yang ada di `PATH` (dalam kasus Android secara default akan menjadi `/system/bin/ls`, ` /system/bin/rm`, dan `/system/bin/chmod` masing-masing), tetapi akan langsung memanggil applet BusyBox internal. Ini memastikan bahwa skrip selalu berjalan di lingkungan yang dapat diprediksi dan selalu memiliki rangkaian perintah lengkap, apa pun versi Android yang menjalankannya. Untuk memaksa perintah _not_ menggunakan BusyBox, Anda harus memanggil yang dapat dieksekusi dengan path lengkap.
@@ -57,6 +69,9 @@ Modul KernelSU adalah folder yang ditempatkan di `/data/adb/modules` dengan stru
 |   ├── uninstall.sh        <--- This script will be executed when KernelSU removes your module
 │   ├── system.prop         <--- Properties in this file will be loaded as system properties by resetprop
 │   ├── sepolicy.rule       <--- Additional custom sepolicy rules
+│   ├── initrc/             <--- File .rc di direktori ini akan disuntikkan ke init.rc saat boot
+│   │   ├── myservice.rc
+│   │   └── ...
 │   │
 │   │      *** Auto Generated, DO NOT MANUALLY CREATE OR MODIFY ***
 │   │
@@ -91,14 +106,25 @@ version=<string>
 versioncode=<int>
 author=<string>
 description=<string>
+updateJson=<url> (opsional)
+actionIcon=<path> (opsional)
+webuiIcon=<path> (opsional)
 ```
 
 - `id` harus cocok dengan ekspresi reguler ini: `^[a-zA-Z][a-zA-Z0-9._-]+$`<br>
    contoh: ✓ `a_module`, ✓ `a.module`, ✓ `module-101`, ✗ `a module`, ✗ `1_module`, ✗ `-a-module`<br>
    Ini adalah **pengidentifikasi unik** modul Anda. Anda tidak boleh mengubahnya setelah dipublikasikan.
-- `versionCode` harus berupa **integer**. Ini digunakan untuk membandingkan versi
+- `versionCode` harus berupa **integer**. Ini digunakan untuk membandingkan versi.
 - Lainnya yang tidak disebutkan di atas dapat berupa string **satu baris**.
 - Pastikan untuk menggunakan tipe jeda baris `UNIX (LF)` dan bukan `Windows (CR+LF)` atau `Macintosh (CR)`.
+- `actionIcon` dan `webuiIcon` adalah path ikon opsional yang digunakan sebagai
+  ikon default untuk pintasan aksi modul dan pintasan WebUI modul di aplikasi
+  pengelola. Path ini harus relatif terhadap direktori root modul. Contohnya,
+  `actionIcon=icon/icon.png` akan dipetakan ke `<MODDIR>/icon/icon.png`.
+
+::: tip DESKRIPSI DINAMIS
+Field `description` dapat diganti secara dinamis saat runtime menggunakan sistem konfigurasi modul. Lihat [Mengganti Deskripsi Modul](module-config.md#overriding-module-description) untuk detailnya.
+:::
 
 ### Shell skrip
 
@@ -112,7 +138,11 @@ Anda dapat menggunakan variabel lingkungan KSU untuk menentukan apakah skrip ber
 
 ### `system` directory
 
-Isi direktori ini akan dihamparkan di atas partisi sistem /sistem menggunakan overlayfs setelah sistem di-boot. Ini berarti bahwa:
+Isi direktori ini akan dihamparkan di atas partisi sistem /sistem setelah sistem di-boot. Ini berarti bahwa:
+
+::: tip PERSYARATAN METAMODULE
+Direktori `system` hanya di-mount jika Anda telah menginstal metamodule yang menyediakan fungsionalitas mounting (seperti `meta-overlayfs`). Metamodule menangani bagaimana modul di-mount. Lihat [Panduan Metamodule](metamodule.md) untuk informasi lebih lanjut.
+:::
 
 1. File dengan nama yang sama dengan yang ada di direktori terkait di sistem akan ditimpa oleh file di direktori ini.
 2. Folder dengan nama yang sama dengan yang ada di direktori terkait di sistem akan digabungkan dengan folder di direktori ini.
@@ -143,7 +173,7 @@ Daftar ini akan secara otomatis membuat direktori `$MODPATH/system/app/YouTube` 
 
 ::: perbedaan tip dengan Magisk
 
-Mekanisme tanpa sistem KernelSU diimplementasikan melalui overlay kernel, sementara Magisk saat ini menggunakan magic mount (bind mount). Kedua metode implementasi tersebut memiliki perbedaan yang signifikan, tetapi tujuan utamanya sama: untuk memodifikasi file / sistem tanpa memodifikasi partisi / sistem secara fisik.
+KernelSU menggunakan arsitektur [metamodule](metamodule.md) di mana mounting didelegasikan ke metamodule yang dapat dipasang. Metamodule `meta-overlayfs` resmi menggunakan OverlayFS kernel untuk modifikasi systemless, sedangkan Magisk menggunakan magic mount (bind mount) yang dibangun langsung ke dalam intinya. Keduanya mencapai tujuan yang sama: memodifikasi file `/system` tanpa memodifikasi partisi `/system` secara fisik. Pendekatan KernelSU memberikan lebih banyak fleksibilitas dan mengurangi permukaan deteksi.
 :::
 
 Jika Anda tertarik dengan overlayfs, disarankan untuk membaca [dokumentasi overlayfs](https://docs.kernel.org/filesystems/overlayfs.html) Kernel Linux.
@@ -155,6 +185,80 @@ File ini mengikuti format yang sama dengan `build.prop`. Setiap baris terdiri da
 ### sepolicy.rule
 
 Jika modul Anda memerlukan beberapa tambalan sepolicy tambahan, harap tambahkan aturan tersebut ke dalam file ini. Setiap baris dalam file ini akan diperlakukan sebagai pernyataan kebijakan.
+
+### Injeksi initrc {#initrc-injection}
+
+KernelSU menyediakan mekanisme untuk menyuntikkan arahan Android Init RC kustom ke dalam `init.rc` sistem. Hal ini memungkinkan modul untuk mendaftarkan layanan Android kustom, mengatur pemicu properti, atau melakukan tindakan bahasa Init lainnya tanpa memodifikasi partisi sistem.
+
+Selama boot, modul kernel KernelSU mencegat panggilan sistem `read()` dan `fstat()`. Saat proses init Android membaca `/system/etc/init/hw/init.rc`, KernelSU secara transparan menambahkan konten RC kustom ke bagian akhir file. Proses init menguraikan arahan yang disuntikkan ini sama seperti konten init.rc asli.
+
+Di sisi userspace, ksud menggabungkan semua file `.rc` dari modul yang diaktifkan menjadi satu file `modules.rc`, yang disimpan di partisi `/metadata`. File ini secara otomatis dibuat ulang setiap kali status modul berubah (diinstal, diaktifkan, dinonaktifkan, dihapus, dll.).
+
+#### File initrc modul
+
+Buat subdirektori `initrc/` di direktori modul Anda dan letakkan file `.rc` Anda di sana:
+
+```txt
+/data/adb/modules/<MODID>/
+├── initrc/
+│   ├── myservice.rc
+│   └── another.rc
+└── ...
+```
+
+::: tip
+- File harus memiliki ekstensi `.rc`.
+- Selama modul diaktifkan, semua file `.rc` di direktori `initrc/` akan disertakan (izin eksekusi tidak diperlukan).
+- File diproses dalam **urutan abjad nama file** di dalam direktori, dan modul diproses dalam **urutan abjad ID modul**.
+:::
+
+#### File initrc umum
+
+Selain file RC tingkat modul, Anda dapat menempatkan file `.rc` di direktori global:
+
+```txt
+/data/adb/initrc.d/
+├── myservice.rc
+└── another.rc
+```
+
+::: warning File initrc umum memerlukan izin eksekusi
+Tidak seperti direktori `initrc/` modul, file di `/data/adb/initrc.d/` **harus memiliki izin eksekusi** untuk disertakan. File `.rc` yang tidak dapat dieksekusi akan dilewati secara diam-diam.
+:::
+
+File `initrc.d/` umum diproses sebelum file RC modul apa pun.
+
+#### Contoh
+
+Berikut adalah contoh file `.rc` yang mendaftarkan layanan Android kustom:
+
+```rc
+service myservice /data/adb/modules/mymodule/bin/myservice
+    user root
+    group root
+    disabled
+    seclabel u:r:ksu:s0
+
+on property:sys.boot_completed=1
+    start myservice
+```
+
+Jika file ini ditempatkan di `/data/adb/modules/mymodule/initrc/myservice.rc`, itu akan mendaftarkan layanan bernama `myservice` saat boot dan memulainya ketika `sys.boot_completed=1` tercapai.
+
+#### Penyegaran Manual
+
+Anda dapat memicu pembuatan ulang `modules.rc` secara manual dengan perintah berikut (perubahan berlaku pada boot berikutnya):
+
+```sh
+ksud initrc refresh
+```
+
+::: tip
+- Injeksi initrc terjadi sangat awal dalam proses boot (saat init membaca init.rc), **sebelum** post-fs-data dan skrip modul apa pun dieksekusi.
+- Konten RC yang disuntikkan diperlakukan oleh init sebagai bagian dari init.rc asli, mendukung semua sintaks bahasa Android Init (definisi layanan, pemicu, pengaturan properti, dll.).
+- Injeksi initrc **tidak tersedia** dalam **mode late-load**, karena hook panggilan sistem tidak diinstal dalam mode tersebut.
+- Injeksi RC modul dapat dinonaktifkan dengan meneruskan parameter `--no-custom-rc` saat menambal gambar dengan ksud.
+:::
 
 ## Pemasangan module
 
@@ -195,6 +299,9 @@ Skrip `customize.sh` berjalan di shell BusyBox `ash` KernelSU dengan "Mode Mandi
 - `ARCH` (string): arsitektur CPU perangkat. Nilainya adalah `arm`, `arm64`, `x86`, atau `x64`
 - `IS64BIT` (bool): `true` jika `$ARCH` adalah `arm64` atau `x64`
 - `API` (int): level API (versi Android) perangkat (mis. `23` untuk Android 6.0)
+- `KSU_UAPI_VER` (int): versi UAPI ruang pengguna KernelSU (ksud) (mis. `2`). Versi ini bertambah ketika ada perubahan yang merusak kompatibilitas pada driver kernel, dan dapat digunakan oleh modul untuk memeriksa kompatibilitas.
+- `KSU_RUNTIME_MODE` (string): mode runtime KernelSU saat ini. Nilai yang mungkin adalah `built-in` (mode GKI, dikompilasi ke dalam kernel), `lkm` (dimuat sebagai modul kernel saat boot), atau `late-load` (dimuat sebagai modul kernel setelah boot).
+- `KSU_LATE_LOAD` (int?): jika KernelSU dimuat secara terlambat setelah boot, variabel ini diatur ke `1`; jika tidak, variabel ini tidak diatur.
 
 ::: peringatan
 Di KernelSU, MAGISK_VER_CODE selalu 25200 dan MAGISK_VER selalu v25.2. Tolong jangan gunakan kedua variabel ini untuk menentukan apakah itu berjalan di KernelSU atau tidak.
@@ -253,3 +360,71 @@ Di KernelSU, skrip startup dibagi menjadi dua jenis berdasarkan lokasi penyimpan
    - `post-fs-data.sh` berjalan dalam mode post-fs-data, dan `service.sh` berjalan dalam mode layanan late_start.
 
 Semua skrip boot akan berjalan di shell BusyBox `ash` KernelSU dengan "Mode Mandiri" diaktifkan.
+
+## Mode late-load {#late-load-mode}
+
+Selain alur boot standar yang dijelaskan di atas, KernelSU mendukung **mode late-load** untuk skenario LKM (Loadable Kernel Module). Dalam mode ini, modul kernel KernelSU dimuat **setelah sistem sepenuhnya boot**, bukan selama proses init.
+
+### Kapan late-load terjadi?
+
+Late-load dipicu dengan menjalankan perintah `ksud late-load`. Perintah ini:
+
+1. Mendeteksi versi KMI saat ini dan memuat `kernelsu.ko` yang sesuai dari aset tertanam.
+2. Melakukan inisialisasi modul (aturan SELinux, daftar izin, fitur, dll.) yang biasanya terjadi saat boot.
+
+Karena sistem sudah sepenuhnya berjalan, mekanisme tertentu saat boot tidak tersedia atau tidak diperlukan.
+
+### Perbedaan dari boot standar
+
+| Perilaku | Boot standar | Mode late-load |
+|----------|:---:|:---:|
+| Modul kernel dimuat oleh init (PID 1) | Ya | Tidak (dimuat setelah boot) |
+| Hook kprobe ksud (execve/read/fstat/input) | Ya | Dilewati |
+| Deteksi mode aman (tombol volume) | Ya | Selalu dinonaktifkan |
+| Pengambilan log boot (logcat/dmesg) | Ya | Dilewati |
+| Pemeriksaan koeksistensi Magisk | Ya | Dilewati |
+| Event `post-fs-data` dilaporkan ke kernel | Ya | Dilewati |
+| Event `boot-completed` dilaporkan ke kernel | Ya | Diatur langsung saat init |
+| Skrip `post-fs-data.sh` / `post-fs-data.d/` | Ya | Digantikan oleh tahap `late-load` |
+| Pemuatan `system.prop` | Ya | Ya |
+| Mount OverlayFS (metamodule) | Ya | Ya |
+| Skrip `post-mount.sh` / `post-mount.d/` | Ya | Ya |
+| Skrip `service.sh` / `service.d/` | Ya | Ya |
+| Skrip `boot-completed.sh` / `boot-completed.d/` | Ya | Ya |
+| Variabel lingkungan `KSU_LATE_LOAD` | Tidak diatur | Diatur ke `1` |
+| Flag info kernel `0x4` | Tidak diatur | Diatur |
+
+### Urutan eksekusi skrip
+
+Dalam mode late-load, urutan eksekusi skrip adalah:
+
+```txt
+ksud late-load:
+  1. Muat kernelsu.ko (jika belum dimuat)
+  2. Ekstrak biner, tangani pembaruan modul, muat aturan SELinux, inisialisasi fitur
+  3. Jalankan skrip late-load.d/ dan skrip late-load modul (blocking)
+  4. Muat system.prop (resetprop -n)
+  5. Jalankan skrip mount metamodule (OverlayFS)
+  6. Jalankan skrip post-mount.d/ dan post-mount.sh modul (blocking)
+  7. Jalankan skrip service.d/ dan service.sh modul (non-blocking)
+  8. Jalankan skrip boot-completed.d/ dan boot-completed.sh modul (non-blocking)
+```
+
+### Skrip khusus late-load
+
+Modul dapat menyediakan skrip `late-load.sh` yang dijalankan **hanya** dalam mode late-load, sebagai pengganti `post-fs-data.sh`. Skrip ini berjalan sebelum mount OverlayFS, mirip dengan `post-fs-data.sh` dalam alur standar.
+
+Selain itu, skrip umum dapat ditempatkan di `/data/adb/late-load.d/` untuk dijalankan pada tahap ini.
+
+### Mendeteksi mode late-load dalam skrip
+
+Modul dapat mendeteksi mode late-load dengan memeriksa variabel lingkungan `KSU_LATE_LOAD`:
+
+```sh
+if [ "$KSU_LATE_LOAD" = "1" ]; then
+    # Berjalan dalam mode late-load
+    echo "Late-load mode detected"
+fi
+```
+
+Ini memungkinkan modul menyesuaikan perilakunya, misalnya melewatkan operasi yang hanya diperlukan saat boot awal.

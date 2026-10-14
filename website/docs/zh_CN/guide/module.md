@@ -4,9 +4,17 @@ KernelSU 提供了一个模块机制，它可以在保持系统分区完整性�
 
 KernelSU 的模块运作机制与 Magisk 几乎是一样的，如果你熟悉 Magisk 模块的开发，那么开发 KernelSU 的模块大同小异，你可以跳过下面有关模块的介绍，只需要了解 [KernelSU 模块与 Magisk 模块的异同](difference-with-magisk.md)。
 
+::: warning 仅修改系统文件需要 METAMODULE
+KernelSU 使用 [metamodule](metamodule.md) 架构来挂载 `system` 目录。**只有当您的模块需要修改 `/system` 文件**（通过 `system` 目录）时，才需要安装 metamodule（例如 [meta-overlayfs](https://github.com/tiann/KernelSU/releases)）。其他模块功能如脚本、sepolicy 规则和 system.prop 无需 metamodule 即可工作。
+:::
+
 ## 模块界面
 
 KernelSU 的模块支持显示界面并与用户交互，请参阅 [WebUI 文档](module-webui.md)。
+
+## 模块配置
+
+KernelSU 提供了一个内置的配置系统，允许模块存储持久化或临时的键值设置。详情请参阅[模块配置文档](module-config.md)。
 
 ## Busybox
 
@@ -69,6 +77,9 @@ KernelSU 模块就是一个放置在 `/data/adb/modules` 内且满足如下结�
 |   ├── uninstall.sh        <--- 这个脚本将会在模块被卸载时运行
 │   ├── system.prop         <--- 这个文件中指定的属性将会在系统启动时通过 resetprop 更改
 │   ├── sepolicy.rule       <--- 这个文件中的 SELinux 策略将会在系统启动时加载
+│   ├── initrc/             <--- 此目录下的 .rc 文件将在启动时注入 init.rc
+│   │   ├── myservice.rc
+│   │   └── ...
 │   │
 │   │      *** 自动生成的目录，不要手动创建或者修改！ ***
 │   │
@@ -103,12 +114,23 @@ version=<string>
 versionCode=<int>
 author=<string>
 description=<string>
+updateJson=<url> (optional)
+actionIcon=<path> (optional)
+webuiIcon=<path> (optional)
 ```
 
-- id 必须与这个正则表达式匹配：`^[a-zA-Z][a-zA-Z0-9._-]+$` 例如：✓ `a_module`，✓ `a.module`，✓ `module-101`，✗ `a  module`，✗ `1_module`，✗ `-a-module`。这是您的模块的唯一标识符，发布后不应更改。
+- id 必须与这个正则表达式匹配：`^[a-zA-Z][a-zA-Z0-9._-]+$` 例如：✓ `a_module`，✓ `a.module`，✓ `module-101`，✗ `a module`，✗ `1_module`，✗ `-a-module`。这是您的模块的唯一标识符，发布后不应更改。
 - versionCode 必须是一个整数，用于比较版本。
 - 其他未在上面提到的内容可以是任何单行字符串。
 - 请确保使用 UNIX（LF）换行类型，而不是 Windows（CR + LF）或 Macintosh（CR）。
+- actionIcon 和 webuiIcon 是可选的图标路径，用作管理器中模块
+  Action 快捷方式和 WebUI 快捷方式的默认图标。这些路径必须是基于模
+  块根目录的相对路径。例如 `actionIcon=icon/icon.png`
+  将会解析为 `<MODDIR>/icon/icon.png`。
+
+::: tip 动态描述
+`description` 字段可以在运行时使用模块配置系统动态覆盖。详情请参阅[覆盖模块描述](module-config.md#overriding-module-description)。
+:::
 
 ### Shell 脚本 {#shell-scripts}
 
@@ -168,6 +190,82 @@ KernelSU 的 systemless 机制是通过内核的 overlayfs 实现的，而 Magis
 
 如果您的模块需要一些额外的 SELinux 策略补丁，请将这些规则添加到此文件中。这个文件中的每一行都将被视为一个策略语句。
 
+### initrc 注入 {#initrc-injection}
+
+KernelSU 提供了一种将自定义 Android Init RC 指令注入系统 `init.rc` 的机制。这使得模块可以在不修改系统分区的情况下注册自定义的 Android 服务、设置属性触发器或执行其他 Init 语言操作。
+
+
+在启动过程中，KernelSU 的内核模块通过 hook `read()` 和 `fstat()` 系统调用，在 Android init 进程读取 `/system/etc/init/hw/init.rc` 时，将自定义 RC 内容透明地追加到文件末尾。init 进程会像处理原始 init.rc 内容一样解析这些注入的指令。
+
+在用户空间侧，ksud 会将所有已启用模块的 `.rc` 文件合并到一个 `modules.rc` 文件中，存放在 `/metadata` 分区上。每当模块状态发生变化（安装、启用、禁用、卸载等）时，这个文件都会被自动重新生成。
+
+
+#### 模块 initrc 文件
+
+在模块目录中创建一个 `initrc/` 子目录，将 `.rc` 文件放置其中：
+
+```txt
+/data/adb/modules/<MODID>/
+├── initrc/
+│   ├── myservice.rc
+│   └── another.rc
+└── ...
+```
+
+::: tip
+- 文件必须以 `.rc` 为扩展名。
+- 只要模块处于启用状态，`initrc/` 目录下的所有 `.rc` 文件都会被包含（无需设置可执行权限）。
+- 处理的先后顺序为：同一目录内的文件按**文件名字母顺序**排列；模块之间按**模块 ID 字母顺序**排列。
+:::
+
+#### 通用 initrc 文件
+
+除了模块级别的 RC 文件外，你还可以将 `.rc` 文件放置在全局目录中：
+
+```txt
+/data/adb/initrc.d/
+├── myservice.rc
+└── another.rc
+```
+
+::: warning 全局 initrc 文件需要可执行权限
+与模块 `initrc/` 目录不同，`/data/adb/initrc.d/` 中的文件**必须设置可执行权限**才会被包含。不具有可执行权限的 `.rc` 文件会被静默跳过。
+:::
+
+全局 `initrc.d/` 文件在所有模块 RC 文件之前被处理。
+
+#### 示例
+
+以下是一个注册自定义 Android 服务的 `.rc` 文件示例：
+
+```rc
+service myservice /data/adb/modules/mymodule/bin/myservice
+    user root
+    group root
+    disabled
+    seclabel u:r:ksu:s0
+
+on property:sys.boot_completed=1
+    start myservice
+```
+
+此文件放置在 `/data/adb/modules/mymodule/initrc/myservice.rc`，将在系统启动时注册一个名为 `myservice` 的服务，并在 `sys.boot_completed=1` 时启动它。
+
+#### 手动刷新
+
+你可以通过以下命令手动触发 `modules.rc` 重新生成（更改将在下次启动时生效）：
+
+```sh
+ksud initrc refresh
+```
+
+::: tip
+- initrc 注入发生在启动极早期（init 读取 init.rc 时），**早于** post-fs-data 和所有模块脚本的执行。
+- 注入的 RC 内容被 init 当作原始 init.rc 的一部分处理，支持所有 Android Init 语言语法（服务定义、触发器、属性设置等）。
+- 在 **late-load 模式**下，initrc 注入**不可用**，因为系统调用 hook 在该模式下不会被安装。
+- 可以在 ksud 修补镜像的时候传入参数`--no-custom-rc` 禁用模块 RC 注入。
+:::
+
 ## 模块安装包 {#module-installer}
 
 KernelSU 的模块安装包就是一个可以通过 KernelSU 管理器 APP 刷入的 zip 文件，此 zip 文件的格式如下：
@@ -207,6 +305,9 @@ KernelSU 模块不支持在 Recovery 中安装！！
 - `ARCH` (string): 设备的 CPU 构架，有如下几种： `arm`, `arm64`, `x86`, or `x64`
 - `IS64BIT` (bool): 是否是 64 位设备
 - `API` (int): 当前设备的 Android API 版本 (如：Android 6.0 上为 `23`)
+- `KSU_UAPI_VER` (int): KernelSU 用户空间 (ksud) 的 UAPI 版本号 (如：`2`)。当内核驱动发生破坏性更改时此版本号会递增，模块可据此判断兼容性。
+- `KSU_RUNTIME_MODE` (string): KernelSU 当前的运行模式。可能的值为 `built-in`（即 GKI 模式，编译进内核）、`lkm`（开机时作为内核模块加载）或 `late-load`（开机后作为内核模块加载）。
+- `KSU_LATE_LOAD` (int?): 如果 KernelSU 是在开机后延迟加载的，此变量的值为 `1`，否则不设置此变量。
 
 ::: warning
 `MAGISK_VER_CODE` 在 KernelSU 中永远为 `25200`，`MAGISK_VER` 则为 `v25.2`，请不要通过这两个变量来判断是否是 KernelSU！
@@ -286,6 +387,7 @@ load kernel:
 mount /dev, /dev/pts, /proc, /sys, etc.
 property-init -> read default props
 read init.rc
+  *initrc injection: Kernel hook appends KernelSU core RC and module modules.rc to init.rc
 ...
 early-init -> init -> late_init
 early-fs
@@ -331,3 +433,72 @@ start user apps (autostart)
 ```
 
 如果你对 Android 的 init 语言感兴趣，推荐阅读[文档](https://android.googlesource.com/platform/system/core/+/master/init/README.md)。
+
+## Late-load 模式 {#late-load-mode}
+
+除了上述标准启动流程外，KernelSU 还支持 **late-load 模式**，用于 LKM（可加载内核模块）场景。在该模式下，KernelSU 内核模块在**系统完全启动后**加载，而非在 init 过程中加载。
+
+### 什么时候触发 late-load？
+
+通过运行 `ksud late-load` 命令触发。该命令会：
+
+1. 检测当前 KMI 版本，从内嵌资源中加载对应的 `kernelsu.ko`。
+2. 执行模块初始化（SELinux 规则、白名单、feature 等），这些工作在标准启动中发生在 boot 阶段。
+
+由于系统已经完全运行，某些启动时的机制不可用或不需要。
+
+### 与标准启动的差异
+
+| 行为 | 标准启动 | Late-load 模式 |
+|------|:---:|:---:|
+| 内核模块由 init (PID 1) 加载 | 是 | 否（启动后加载） |
+| initrc 注入（模块 `.rc` 文件注入 init.rc） | 是 | 不可用 |
+| ksud 的 kprobe 钩子 (execve/read/fstat/input) | 是 | 跳过 |
+| 安全模式检测（音量键） | 是 | 始终禁用 |
+| 启动日志抓取 (logcat/dmesg) | 是 | 跳过 |
+| Magisk 共存检测 | 是 | 跳过 |
+| `post-fs-data` 事件通知内核 | 是 | 跳过 |
+| `boot-completed` 事件通知内核 | 是 | 初始化时直接设置 |
+| `post-fs-data.sh` / `post-fs-data.d/` 脚本 | 是 | 由 `late-load` 阶段替代 |
+| `system.prop` 加载 | 是 | 是 |
+| OverlayFS 挂载（metamodule） | 是 | 是 |
+| `post-mount.sh` / `post-mount.d/` 脚本 | 是 | 是 |
+| `service.sh` / `service.d/` 脚本 | 是 | 是 |
+| `boot-completed.sh` / `boot-completed.d/` 脚本 | 是 | 是 |
+| `KSU_LATE_LOAD` 环境变量 | 未设置 | 设置为 `1` |
+| 内核 info 标志位 `0x4` | 未设置 | 已设置 |
+
+### 脚本执行顺序
+
+在 late-load 模式下，脚本执行顺序如下：
+
+```txt
+ksud late-load:
+  1. 加载 kernelsu.ko（如果尚未加载）
+  2. 释放二进制文件、处理模块更新、加载 SELinux 规则、初始化 feature
+  3. 执行 late-load.d/ 通用脚本和模块的 late-load 脚本（阻塞）
+  4. 加载 system.prop (resetprop -n)
+  5. 执行 metamodule mount 脚本（OverlayFS 挂载）
+  6. 执行 post-mount.d/ 通用脚本和模块的 post-mount.sh（阻塞）
+  7. 执行 service.d/ 通用脚本和模块的 service.sh（非阻塞）
+  8. 执行 boot-completed.d/ 通用脚本和模块的 boot-completed.sh（非阻塞）
+```
+
+### Late-load 专用脚本
+
+模块可以提供 `late-load.sh` 脚本，该脚本**仅在 late-load 模式下运行**，作为 `post-fs-data.sh` 的替代。该脚本在 OverlayFS 挂载之前运行，与标准流程中的 `post-fs-data.sh` 时机类似。
+
+此外，通用脚本可以放置在 `/data/adb/late-load.d/` 目录下，在该阶段执行。
+
+### 在脚本中检测 late-load 模式
+
+模块可以通过 `KSU_LATE_LOAD` 环境变量检测当前是否处于 late-load 模式：
+
+```sh
+if [ "$KSU_LATE_LOAD" = "1" ]; then
+    # 当前处于 late-load 模式
+    echo "Late-load mode detected"
+fi
+```
+
+这使得模块可以据此调整自身行为，例如跳过仅在早期启动时才需要的操作。

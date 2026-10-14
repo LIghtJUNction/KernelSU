@@ -76,7 +76,7 @@ Việc giải thích khái niệm đầy đủ về SELinux rất phức tạp v
 
 Root Profile của KernelSU cho phép tùy chỉnh ngữ cảnh SELinux của tiến trình gốc sau khi thực thi `su`. Các quy tắc kiểm soát truy cập cụ thể có thể được đặt cho bối cảnh này để cho phép kiểm soát chi tiết hơn các quyền .
 
-Trong các trường hợp điển hình, khi một ứng dụng thực thi `su`, nó sẽ chuyển quy trình sang miền SELinux với **quyền truy cập không hạn chế**, chẳng hạn như `u:r:su:s0`. Thông qua Root Profile, miền này có thể được chuyển sang miền tùy chỉnh, chẳng hạn như `u:r:app1:s0` và một loạt quy tắc có thể được xác định cho miền này:
+Trong các trường hợp điển hình, khi một ứng dụng thực thi `su`, nó sẽ chuyển quy trình sang miền SELinux với **quyền truy cập không hạn chế**, chẳng hạn như `u:r:ksu:s0`. Thông qua Root Profile, miền này có thể được chuyển sang miền tùy chỉnh, chẳng hạn như `u:r:app1:s0` và một loạt quy tắc có thể được xác định cho miền này:
 
 ```sh
 type app1
@@ -96,10 +96,14 @@ Ví dụ: nếu bạn cấp quyền root cho người dùng shell ADB (đây là
 1. Lần thực thi `su` đầu tiên phải tuân theo sự thực thi của App Profile và sẽ chuyển sang UID `2000` (adb shell) thay vì `0` (root).
 2. Lần thực thi `su` thứ hai, vì UID là `2000` và bạn đã cấp quyền truy cập root cho UID `2000` (adb shell) trong cấu hình, ứng dụng sẽ có toàn quyền root.
 
-:::warning Ghi chú
-Hành vi này hoàn toàn được mong đợi và không phải là lỗi. Vì vậy, chúng tôi khuyến nghị như sau:
+:::tip mẹo
+Bạn có thể bật cờ `NO_NEW_PRIVS` trong `App Profile` tùy chỉnh của mình.
 
-Nếu bạn thực sự cần cấp quyền root cho ADB (ví dụ: với tư cách là nhà phát triển), bạn không nên thay đổi UID thành `2000` khi định cấu hình Root Profile. Sử dụng `1000` (hệ thống) sẽ là lựa chọn tốt hơn.
+Điều này ngăn tiến trình thoát ra và leo thang đặc quyền một lần nữa thông qua lệnh `su`.
+
+Tuy nhiên, cờ này **chỉ** ngăn KernelSU leo thang đặc quyền cho tiến trình; nó vẫn có thể thoát ra bằng các cơ chế Linux khác.
+
+Vì vậy, hãy hết sức cẩn thận với cài đặt quyền của bạn.
 :::
 
 ## Non-Root Profile

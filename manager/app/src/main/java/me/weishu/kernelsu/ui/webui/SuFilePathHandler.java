@@ -1,6 +1,7 @@
 package me.weishu.kernelsu.ui.webui;
 
 import android.content.Context;
+import android.content.SharedPreferences;
 import android.util.Log;
 import android.webkit.WebResourceResponse;
 
@@ -12,9 +13,11 @@ import com.topjohnwu.superuser.Shell;
 import com.topjohnwu.superuser.io.SuFile;
 import com.topjohnwu.superuser.io.SuFileInputStream;
 
+import java.io.ByteArrayInputStream;
 import java.io.File;
 import java.io.IOException;
 import java.io.InputStream;
+import java.nio.charset.StandardCharsets;
 import java.util.zip.GZIPInputStream;
 
 /**
@@ -38,13 +41,11 @@ import java.util.zip.GZIPInputStream;
  * </pre>
  */
 public final class SuFilePathHandler implements WebViewAssetLoader.PathHandler {
-    private static final String TAG = "SuFilePathHandler";
-
     /**
      * Default value to be used as MIME type if guessing MIME type failed.
      */
     public static final String DEFAULT_MIME_TYPE = "text/plain";
-
+    private static final String TAG = "SuFilePathHandler";
     /**
      * Forbidden subdirectories of {@link Context#getDataDir} that cannot be exposed by this
      * handler. They are forbidden as they often contain sensitive information.
@@ -52,12 +53,15 @@ public final class SuFilePathHandler implements WebViewAssetLoader.PathHandler {
      * Note: Any future addition to this list will be considered breaking changes to the API.
      */
     private static final String[] FORBIDDEN_DATA_DIRS =
-            new String[] {"/data/data", "/data/system"};
+            new String[]{"/data/data", "/data/system"};
 
     @NonNull
     private final File mDirectory;
 
     private final Shell mShell;
+    private final InsetsSupplier mInsetsSupplier;
+    private final OnInsetsRequestedListener mOnInsetsRequestedListener;
+    private final Context mContext;
 
     /**
      * Creates PathHandler for app's internal storage.
@@ -76,13 +80,19 @@ public final class SuFilePathHandler implements WebViewAssetLoader.PathHandler {
      * The application should typically use a dedicated subdirectory for the files it intends to
      * expose and keep them separate from other files.
      *
-     * @param context {@link Context} that is used to access app's internal storage.
-     * @param directory the absolute path of the exposed app internal storage directory from
-     *                  which files can be loaded.
+     * @param context                   {@link Context} that is used to access app's internal storage.
+     * @param directory                 the absolute path of the exposed app internal storage directory from
+     *                                  which files can be loaded.
+     * @param rootShell                 {@link Shell} instance with root access to read files.
+     * @param insetsSupplier            {@link InsetsSupplier} to provide window insets for styling web content.
+     * @param onInsetsRequestedListener {@link OnInsetsRequestedListener} to notify when insets are requested.
      * @throws IllegalArgumentException if the directory is not allowed.
      */
-    public SuFilePathHandler(@NonNull Context context, @NonNull File directory, Shell rootShell) {
+    public SuFilePathHandler(@NonNull Context context, @NonNull File directory, Shell rootShell, @NonNull InsetsSupplier insetsSupplier, OnInsetsRequestedListener onInsetsRequestedListener) {
         try {
+            mContext = context;
+            mInsetsSupplier = insetsSupplier;
+            mOnInsetsRequestedListener = onInsetsRequestedListener;
             mDirectory = new File(getCanonicalDirPath(directory));
             if (!isAllowedInternalStorageDir(context)) {
                 throw new IllegalArgumentException("The given directory \"" + directory
@@ -94,57 +104,6 @@ public final class SuFilePathHandler implements WebViewAssetLoader.PathHandler {
                     "Failed to resolve the canonical path for the given directory: "
                             + directory.getPath(), e);
         }
-    }
-
-    private boolean isAllowedInternalStorageDir(@NonNull Context context) throws IOException {
-        String dir = getCanonicalDirPath(mDirectory);
-
-        for (String forbiddenPath : FORBIDDEN_DATA_DIRS) {
-            if (dir.startsWith(forbiddenPath)) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /**
-     * Opens the requested file from the exposed data directory.
-     * <p>
-     * The matched prefix path used shouldn't be a prefix of a real web path. Thus, if the
-     * requested file cannot be found or is outside the mounted directory a
-     * {@link WebResourceResponse} object with a {@code null} {@link InputStream} will be
-     * returned instead of {@code null}. This saves the time of falling back to network and
-     * trying to resolve a path that doesn't exist. A {@link WebResourceResponse} with
-     * {@code null} {@link InputStream} will be received as an HTTP response with status code
-     * {@code 404} and no body.
-     * <p class="note">
-     * The MIME type for the file will be determined from the file's extension using
-     * {@link java.net.URLConnection#guessContentTypeFromName}. Developers should ensure that
-     * files are named using standard file extensions. If the file does not have a
-     * recognised extension, {@code "text/plain"} will be used by default.
-     *
-     * @param path the suffix path to be handled.
-     * @return {@link WebResourceResponse} for the requested file.
-     */
-    @Override
-    @WorkerThread
-    @NonNull
-    public WebResourceResponse handle(@NonNull String path) {
-        try {
-            File file = getCanonicalFileIfChild(mDirectory, path);
-            if (file != null) {
-                InputStream is = openFile(file, mShell);
-                String mimeType = guessMimeType(path);
-                return new WebResourceResponse(mimeType, null, is);
-            } else {
-                Log.e(TAG, String.format(
-                        "The requested file: %s is outside the mounted directory: %s", path,
-                        mDirectory));
-            }
-        } catch (IOException e) {
-            Log.e(TAG, "Error opening the requested path: " + path, e);
-        }
-        return new WebResourceResponse(null, null, null);
     }
 
     public static String getCanonicalDirPath(@NonNull File file) throws IOException {
@@ -187,5 +146,90 @@ public final class SuFilePathHandler implements WebViewAssetLoader.PathHandler {
     public static String guessMimeType(@NonNull String filePath) {
         String mimeType = MimeUtil.getMimeFromFileName(filePath);
         return mimeType == null ? DEFAULT_MIME_TYPE : mimeType;
+    }
+
+    private boolean isAllowedInternalStorageDir(@NonNull Context context) throws IOException {
+        String dir = getCanonicalDirPath(mDirectory);
+
+        for (String forbiddenPath : FORBIDDEN_DATA_DIRS) {
+            if (dir.startsWith(forbiddenPath)) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    /**
+     * Opens the requested file from the exposed data directory.
+     * <p>
+     * The matched prefix path used shouldn't be a prefix of a real web path. Thus, if the
+     * requested file cannot be found or is outside the mounted directory a
+     * {@link WebResourceResponse} object with a {@code null} {@link InputStream} will be
+     * returned instead of {@code null}. This saves the time of falling back to network and
+     * trying to resolve a path that doesn't exist. A {@link WebResourceResponse} with
+     * {@code null} {@link InputStream} will be received as an HTTP response with status code
+     * {@code 404} and no body.
+     * <p class="note">
+     * The MIME type for the file will be determined from the file's extension using
+     * {@link java.net.URLConnection#guessContentTypeFromName}. Developers should ensure that
+     * files are named using standard file extensions. If the file does not have a
+     * recognised extension, {@code "text/plain"} will be used by default.
+     *
+     * @param path the suffix path to be handled.
+     * @return {@link WebResourceResponse} for the requested file.
+     */
+    @Override
+    @WorkerThread
+    @NonNull
+    public WebResourceResponse handle(@NonNull String path) {
+        if ("internal/insets.css".equals(path)) {
+            if (mOnInsetsRequestedListener != null) {
+                mOnInsetsRequestedListener.onInsetsRequested(true);
+            }
+            String css = mInsetsSupplier.get().getCss();
+            return new WebResourceResponse(
+                    "text/css",
+                    "utf-8",
+                    new ByteArrayInputStream(css.getBytes(StandardCharsets.UTF_8))
+            );
+        }
+        if ("internal/colors.css".equals(path)) {
+            SharedPreferences prefs = mContext.getSharedPreferences("settings", Context.MODE_PRIVATE);
+            int colorMode = prefs.getInt("color_mode", 0);
+            String uiMode = prefs.getString("ui_mode", "miuix");
+            String css = "";
+            if ((colorMode >= 3 && colorMode <= 6) || "material".equals(uiMode)) {
+                css = MonetColorsProvider.INSTANCE.getColorsCss();
+            }
+            return new WebResourceResponse(
+                    "text/css",
+                    "utf-8",
+                    new ByteArrayInputStream(css.getBytes(StandardCharsets.UTF_8))
+            );
+        }
+        try {
+            File file = getCanonicalFileIfChild(mDirectory, path);
+            if (file != null) {
+                InputStream is = openFile(file, mShell);
+                String mimeType = guessMimeType(path);
+                return new WebResourceResponse(mimeType, null, is);
+            } else {
+                Log.e(TAG, String.format(
+                        "The requested file: %s is outside the mounted directory: %s", path,
+                        mDirectory));
+            }
+        } catch (IOException e) {
+            Log.e(TAG, "Error opening the requested path: " + path, e);
+        }
+        return new WebResourceResponse(null, null, null);
+    }
+
+    public interface InsetsSupplier {
+        @NonNull
+        Insets get();
+    }
+
+    public interface OnInsetsRequestedListener {
+        void onInsetsRequested(boolean enable);
     }
 }

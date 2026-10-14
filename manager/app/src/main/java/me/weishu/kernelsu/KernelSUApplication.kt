@@ -1,36 +1,58 @@
 package me.weishu.kernelsu
 
 import android.app.Application
+import android.content.pm.ApplicationInfo
+import android.os.Build
+import android.os.UserManager
 import android.system.Os
-import coil.Coil
-import coil.ImageLoader
-import me.zhanghai.android.appiconloader.coil.AppIconFetcher
-import me.zhanghai.android.appiconloader.coil.AppIconKeyer
+import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.ViewModelStore
+import androidx.lifecycle.ViewModelStoreOwner
+import me.weishu.kernelsu.data.repository.SettingsRepositoryImpl
+import me.weishu.kernelsu.ui.viewmodel.SuperUserViewModel
 import okhttp3.Cache
 import okhttp3.OkHttpClient
+import org.lsposed.hiddenapibypass.HiddenApiBypass
 import java.io.File
 import java.util.Locale
 
 lateinit var ksuApp: KernelSUApplication
 
-class KernelSUApplication : Application() {
+class KernelSUApplication : Application(), ViewModelStoreOwner {
+
+    companion object {
+        fun setEnableOnBackInvokedCallback(appInfo: ApplicationInfo, enable: Boolean) {
+            runCatching {
+                val applicationInfoClass = ApplicationInfo::class.java
+                val method = applicationInfoClass.getDeclaredMethod("setEnableOnBackInvokedCallback", Boolean::class.javaPrimitiveType)
+                method.isAccessible = true
+                method.invoke(appInfo, enable)
+            }
+        }
+    }
 
     lateinit var okhttpClient: OkHttpClient
+    private val appViewModelStore by lazy { ViewModelStore() }
+
+    private fun isUserUnlocked(): Boolean =
+        getSystemService(UserManager::class.java)?.isUserUnlocked == true
 
     override fun onCreate() {
         super.onCreate()
         ksuApp = this
 
-        val context = this
-        val iconSize = resources.getDimensionPixelSize(android.R.dimen.app_icon_size)
-        Coil.setImageLoader(
-            ImageLoader.Builder(context)
-                .components {
-                    add(AppIconKeyer())
-                    add(AppIconFetcher.Factory(iconSize, false, context))
-                }
-                .build()
-        )
+        if (!isUserUnlocked()) {
+            return
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            val enable = SettingsRepositoryImpl().enablePredictiveBack
+            HiddenApiBypass.addHiddenApiExemptions("Landroid/content/pm/ApplicationInfo;->setEnableOnBackInvokedCallback")
+            setEnableOnBackInvokedCallback(applicationInfo, enable)
+        }
+
+        val superUserViewModel = ViewModelProvider(this)[SuperUserViewModel::class.java]
+        superUserViewModel.loadAppList()
 
         val webroot = File(dataDir, "webroot")
         if (!webroot.exists()) {
@@ -51,5 +73,6 @@ class KernelSUApplication : Application() {
                 }.build()
     }
 
-
+    override val viewModelStore: ViewModelStore
+        get() = appViewModelStore
 }

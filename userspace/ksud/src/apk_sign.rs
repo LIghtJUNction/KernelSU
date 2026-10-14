@@ -28,7 +28,7 @@ pub fn get_apk_signature(apk: &str) -> Result<(u32, String)> {
             }
         }
 
-        ensure!(n != 0xffff, "not a zip file");
+        ensure!(i < 0xffff, "not a zip file");
 
         i += 1;
     }
@@ -81,10 +81,10 @@ pub fn get_apk_signature(apk: &str) -> Result<(u32, String)> {
     }
 
     if v3_signing_exist || v3_1_signing_exist {
-        return Err(anyhow::anyhow!("Unexpected v3 signature found!",));
+        return Err(anyhow::anyhow!("Unexpected v3 signature found!"));
     }
 
-    v2_signing.ok_or(anyhow::anyhow!("No signature found!"))
+    v2_signing.ok_or_else(|| anyhow::anyhow!("No signature found!"))
 }
 
 fn calc_cert_sha256(

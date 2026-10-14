@@ -4,9 +4,17 @@ O KernelSU fornece um mecanismo de módulo que consegue modificar o diretório d
 
 O mecanismo de módulos do KernelSU é quase o mesmo do Magisk. Se você já está familiarizado com o desenvolvimento de módulos Magisk, o desenvolvimento de módulos KernelSU é muito semelhante. Você pode pular a introdução dos módulos abaixo e só precisa ler [Diferenças com Magisk](difference-with-magisk.md).
 
+::: warning METAMODULE NECESSÁRIO APENAS PARA MODIFICAÇÃO DE ARQUIVOS DO SISTEMA
+KernelSU usa uma arquitetura [metamodule](metamodule.md) para montar o diretório `system`. **Somente se seu módulo precisar modificar arquivos `/system`** (via diretório `system`), você precisa instalar um metamodule (como [meta-overlayfs](https://github.com/tiann/KernelSU/releases)). Outros recursos de módulos como scripts, regras sepolicy e system.prop funcionam sem um metamodule.
+:::
+
 ## WebUI
 
 Os módulos do KernelSU suportam a exibição de interfaces e a interação com os usuários. Para mais detalhes, consulte a [documentação do WebUI](module-webui.md).
+
+## Configuração de Módulo
+
+O KernelSU fornece um sistema de configuração integrado que permite que os módulos armazenem configurações de chave-valor persistentes ou temporárias. Para mais detalhes, consulte a [documentação de Configuração de Módulo](module-config.md).
 
 ## BusyBox
 
@@ -63,6 +71,9 @@ Um módulo KernelSU é uma pasta colocada em `/data/adb/modules` com a estrutura
 |   ├── action.sh           <--- Este script será executado quando o usuário clicar no botão Ação no KernelSU
 │   ├── system.prop         <--- As propriedades neste arquivo serão carregadas como propriedades do sistema por resetprop
 │   ├── sepolicy.rule       <--- Regras adicionais do sepolicy personalizadas
+│   ├── initrc/             <--- Arquivos .rc neste diretório serão injetados no init.rc no boot
+│   │   ├── myservice.rc
+│   │   └── ...
 │   │
 │   │      *** Gerado automaticamente, NÃO CRIE OU MODIFIQUE MANUALMENTE ***
 │   │
@@ -97,6 +108,9 @@ version=<string>
 versionCode=<int>
 author=<string>
 description=<string>
+updateJson=<url> (opcional)
+actionIcon=<path> (opcional)
+webuiIcon=<path> (opcional)
 ```
 
 - `id` deve corresponder a esta expressão regular: `^[a-zA-Z][a-zA-Z0-9._-]+$`<br>
@@ -105,6 +119,14 @@ description=<string>
 - `versionCode` deve ser um **número inteiro**. Isso é usado para comparar versões.
 - Outros que não foram mencionados acima podem ser qualquer string de **linha única**.
 - Certifique-se de usar o tipo de quebra de linha `UNIX (LF)` e não o `Windows (CR+LF)` ou `Macintosh (CR)`.
+- `actionIcon` e `webuiIcon` são caminhos de imagem opcionais usados como ícones
+  padrão para o atalho de ação do módulo e o atalho WebUI do módulo no
+  aplicativo gerenciador. Esses caminhos devem ser relativos ao diretório raiz do módulo.
+  Por exemplo, `actionIcon=icon/icon.png` será resolvido como `<MODDIR>/icon/icon.png`.
+
+::: tip DESCRIÇÃO DINÂMICA
+O campo `description` pode ser substituído dinamicamente em tempo de execução usando o sistema de configuração de módulos. Veja [Substituindo a Descrição do Módulo](module-config.md#overriding-module-description) para detalhes.
+:::
 
 ### Shell scripts
 
@@ -163,6 +185,80 @@ Este arquivo segue o mesmo formato de `build.prop`. Cada linha é composta por `
 
 Se o seu módulo exigir alguns patches adicionais do sepolicy, adicione essas regras a este arquivo. Cada linha neste arquivo será tratada como uma declaração de política.
 
+### Injeção de initrc {#initrc-injection}
+
+O KernelSU fornece um mecanismo para injetar diretivas RC customizadas do Android Init no `init.rc` do sistema. Isso permite que os módulos registrem serviços Android customizados, definam gatilhos de propriedade ou executem outras ações de linguagem Init sem modificar a partição do sistema.
+
+Durante a inicialização, o módulo do kernel KernelSU intercepta as chamadas de sistema `read()` e `fstat()`. Quando o processo init do Android lê `/system/etc/init/hw/init.rc`, o KernelSU adiciona de forma transparente o conteúdo RC customizado ao final do arquivo. O processo init analisa essas diretivas injetadas exatamente como o conteúdo original do init.rc.
+
+No lado do espaço do usuário, o ksud concatena todos os arquivos `.rc` de módulos habilitados em um único arquivo `modules.rc`, armazenado na partição `/metadata`. Este arquivo é regenerado automaticamente sempre que o estado de um módulo muda (instalar, habilitar, desabilitar, desinstalar, etc.).
+
+#### Arquivos initrc do módulo
+
+Crie um subdiretório `initrc/` no diretório do seu módulo e coloque seus arquivos `.rc` lá:
+
+```txt
+/data/adb/modules/<MODID>/
+├── initrc/
+│   ├── myservice.rc
+│   └── another.rc
+└── ...
+```
+
+::: tip
+- Os arquivos devem ter uma extensão `.rc`.
+- Contanto que o módulo esteja habilitado, todos os arquivos `.rc` no diretório `initrc/` serão incluídos (permissão de execução não é necessária).
+- Os arquivos são processados em **ordem alfabética de nome de arquivo** dentro do diretório, e os módulos são processados em **ordem alfabética de ID do módulo**.
+:::
+
+#### Arquivos initrc gerais
+
+Além de arquivos RC no nível do módulo, você pode colocar arquivos `.rc` no diretório global:
+
+```txt
+/data/adb/initrc.d/
+├── myservice.rc
+└── another.rc
+```
+
+::: warning Arquivos initrc gerais requerem permissão de execução
+Diferente do diretório `initrc/` do módulo, arquivos em `/data/adb/initrc.d/` **devem ter permissões de execução** para serem incluídos. Arquivos `.rc` não executáveis serão ignorados silenciosamente.
+:::
+
+Arquivos `initrc.d/` gerais são processados antes de quaisquer arquivos RC de módulo.
+
+#### Exemplo
+
+Aqui está um exemplo de arquivo `.rc` que registra um serviço Android customizado:
+
+```rc
+service myservice /data/adb/modules/mymodule/bin/myservice
+    user root
+    group root
+    disabled
+    seclabel u:r:ksu:s0
+
+on property:sys.boot_completed=1
+    start myservice
+```
+
+Se este arquivo for colocado em `/data/adb/modules/mymodule/initrc/myservice.rc`, ele registrará um serviço chamado `myservice` na inicialização e o iniciará quando `sys.boot_completed=1` for alcançado.
+
+#### Atualização Manual
+
+Você pode acionar manualmente a regeneração do `modules.rc` com o seguinte comando (as alterações entram em vigor na próxima inicialização):
+
+```sh
+ksud initrc refresh
+```
+
+::: tip
+- A injeção de initrc acontece extremamente cedo no processo de inicialização (quando o init lê o init.rc), **antes** do post-fs-data e de quaisquer scripts de módulo serem executados.
+- O conteúdo RC injetado é tratado pelo init como parte do init.rc original, suportando toda a sintaxe da linguagem Android Init (definições de serviço, gatilhos, configurações de propriedades, etc.).
+- A injeção de initrc **não está disponível** no **modo late-load**, pois os ganchos de chamada do sistema não são instalados nesse modo.
+- A injeção de RC do módulo pode ser desabilitada passando o parâmetro `--no-custom-rc` ao aplicar patch na imagem com o ksud.
+:::
+
 ## Instalador do módulo
 
 Um instalador do módulo KernelSU é um módulo KernelSU empacotado em um arquivo ZIP que pode ser atualizado no gerenciador do KernelSU. O instalador do módulo KernelSU mais simples é apenas um módulo KernelSU compactado como um arquivo ZIP.
@@ -202,6 +298,9 @@ O script `customize.sh` é executado no shell BusyBox `ash` do KernelSU com o Mo
 - `ARCH` (string): a arquitetura da CPU do dispositivo. O valor é `arm`, `arm64`, `x86` ou `x64`.
 - `IS64BIT` (bool): `true` se `$ARCH` for `arm64` ou `x64`.
 - `API` (int): o nível da API (versão do Android) do dispositivo (ex.: `23` para Android 6.0).
+- `KSU_UAPI_VER` (int): a versão UAPI do espaço do usuário do KernelSU (ksud) (ex.: `2`). Esta versão é incrementada quando há alterações que quebram a compatibilidade no driver do kernel, e pode ser usada pelos módulos para verificar compatibilidade.
+- `KSU_RUNTIME_MODE` (string): o modo de execução atual do KernelSU. Os valores possíveis são `built-in` (modo GKI, compilado no kernel), `lkm` (carregado como módulo do kernel na inicialização) ou `late-load` (carregado como módulo do kernel após a inicialização).
+- `KSU_LATE_LOAD` (int?): se o KernelSU foi carregado tardiamente após a inicialização, esta variável é definida como `1`; caso contrário, não é definida.
 
 ::: warning AVISO
 No KernelSU, `MAGISK_VER_CODE` é sempre `25200` e `MAGISK_VER` é sempre `v25.2`. Por favor, não use essas duas variáveis ​​para determinar se ele está sendo executado no KernelSU ou não.
@@ -279,6 +378,7 @@ load kernel:
 mount /dev, /dev/pts, /proc, /sys, etc.
 property-init -> read default props
 read init.rc
+  *initrc injection: Kernel hook appends KernelSU core RC and module modules.rc to init.rc
 ...
 early-init -> init -> late_init
 early-fs
@@ -324,3 +424,71 @@ iniciar apps de usuário (início automático)
 ```
 
 Se você estiver interessado na linguagem de inicialização do Android, é recomendável ler sua [documentação](https://android.googlesource.com/platform/system/core/+/master/init/README.md).
+
+## Modo late-load {#late-load-mode}
+
+Além do fluxo de inicialização padrão descrito acima, o KernelSU suporta um **modo late-load** para cenários de LKM (Loadable Kernel Module). Neste modo, o módulo do kernel KernelSU é carregado **após o sistema ter sido totalmente iniciado**, em vez de durante o processo init.
+
+### Quando o late-load acontece?
+
+O late-load é acionado executando o comando `ksud late-load`. Este comando:
+
+1. Detecta a versão KMI atual e carrega o `kernelsu.ko` correspondente dos recursos incorporados.
+2. Realiza a inicialização do módulo (regras SELinux, lista de permissões, features, etc.) que normalmente aconteceria durante a inicialização.
+
+Como o sistema já está totalmente em execução, certos mecanismos de tempo de inicialização estão indisponíveis ou são desnecessários.
+
+### Diferenças em relação à inicialização padrão
+
+| Comportamento | Inicialização padrão | Modo late-load |
+|---------------|:---:|:---:|
+| Módulo do kernel carregado pelo init (PID 1) | Sim | Não (carregado após inicialização) |
+| Hooks kprobe do ksud (execve/read/fstat/input) | Sim | Ignorado |
+| Detecção de modo seguro (tecla de volume) | Sim | Sempre desativado |
+| Captura de log de inicialização (logcat/dmesg) | Sim | Ignorado |
+| Verificação de coexistência com Magisk | Sim | Ignorado |
+| Evento `post-fs-data` reportado ao kernel | Sim | Ignorado |
+| Evento `boot-completed` reportado ao kernel | Sim | Definido diretamente durante init |
+| Scripts `post-fs-data.sh` / `post-fs-data.d/` | Sim | Substituído pelo estágio `late-load` |
+| Carregamento de `system.prop` | Sim | Sim |
+| Montagem OverlayFS (metamodule) | Sim | Sim |
+| Scripts `post-mount.sh` / `post-mount.d/` | Sim | Sim |
+| Scripts `service.sh` / `service.d/` | Sim | Sim |
+| Scripts `boot-completed.sh` / `boot-completed.d/` | Sim | Sim |
+| Variável de ambiente `KSU_LATE_LOAD` | Não definida | Definida como `1` |
+| Flag de info do kernel `0x4` | Não definida | Definida |
+
+### Ordem de execução dos scripts
+
+No modo late-load, a ordem de execução dos scripts é:
+
+```txt
+ksud late-load:
+  1. Carregar kernelsu.ko (se ainda não carregado)
+  2. Extrair binários, processar atualizações de módulos, carregar regras SELinux, inicializar features
+  3. Executar scripts late-load.d/ e scripts late-load dos módulos (bloqueante)
+  4. Carregar system.prop (resetprop -n)
+  5. Executar script de montagem do metamodule (OverlayFS)
+  6. Executar scripts post-mount.d/ e post-mount.sh dos módulos (bloqueante)
+  7. Executar scripts service.d/ e service.sh dos módulos (não bloqueante)
+  8. Executar scripts boot-completed.d/ e boot-completed.sh dos módulos (não bloqueante)
+```
+
+### Scripts específicos do late-load
+
+Módulos podem fornecer um script `late-load.sh` que é executado **apenas** no modo late-load, como substituto do `post-fs-data.sh`. Este script é executado antes da montagem do OverlayFS, similar ao `post-fs-data.sh` no fluxo padrão.
+
+Além disso, scripts gerais podem ser colocados em `/data/adb/late-load.d/` para serem executados neste estágio.
+
+### Detectando o modo late-load nos scripts
+
+Módulos podem detectar o modo late-load verificando a variável de ambiente `KSU_LATE_LOAD`:
+
+```sh
+if [ "$KSU_LATE_LOAD" = "1" ]; then
+    # Executando no modo late-load
+    echo "Late-load mode detected"
+fi
+```
+
+Isso permite que os módulos ajustem seu comportamento de acordo, por exemplo, pulando operações que só são necessárias durante a inicialização antecipada.

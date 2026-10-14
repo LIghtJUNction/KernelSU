@@ -15,7 +15,7 @@ Rozwiązanie root oparte na jądrze dla urządzeń z systemem Android.
 ## Cechy
 
 1. Oparte na jądrze `su` i zarządzanie dostępem roota.
-2. System modułów oparty na [OverlayFS](https://en.wikipedia.org/wiki/OverlayFS).
+2. System modułów oparty na [metamodules](https://kernelsu.org/guide/metamodule.html): Wtykowa infrastruktura dla modyfikacji systemless.
 
 ## Kompatybilność
 
@@ -23,7 +23,10 @@ KernelSU oficjalnie obsługuje urządzenia z Androidem GKI 2.0 (z jądrem 5.10+)
 
 WSA i Android oparty na kontenerach również powinny działać ze zintegrowanym KernelSU.
 
-Aktualnie obsługiwane ABI to : `arm64-v8a` i `x86_64`.
+Obecnie obsługiwane są architektury `arm64-v8a` oraz `x86_64`.
+
+> [!CAUTION]
+> Nowsze wersje jądra wprowadzają zmianę, która powoduje awarię KernelSU i może wywołać kernel panic na `x86_64`! Sprawdź stronę internetową po więcej informacji!
 
 ## Użycie
 

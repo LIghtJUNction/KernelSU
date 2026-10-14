@@ -15,7 +15,7 @@ Android におけるカーネルベースの root ソリューションです。
 ## 特徴
 
 1. カーネルベースの `su` と権限管理。
-2. [OverlayFS](https://en.wikipedia.org/wiki/OverlayFS) に基づくモジュールシステム。
+2. [metamodules](https://kernelsu.org/ja_JP/guide/metamodule.html) に基づくモジュールシステム: プラグイン可能なシステムレス変更インフラストラクチャ。
 3. [アプリのプロファイル](https://kernelsu.org/guide/app-profile.html): root の権限をケージ内に閉じ込めます。
 
 ## 対応状況
@@ -24,7 +24,10 @@ KernelSU は GKI 2.0 デバイス（カーネルバージョン 5.10 以上）�
 
 WSA 、ChromeOS とコンテナ上で動作する Android でも KernelSU を統合して動かせます。
 
-現在サポートしているアーキテクチャは `arm64-v8a` および `x86_64` です。
+現在、`arm64-v8a` および `x86_64` アーキテクチャがサポートされています。
+
+> [!CAUTION]
+> 最近のカーネルバージョンでは、KernelSU が機能しなくなり、`x86_64` 上でカーネルパニックを引き起こす可能性のある破壊的な変更が実装されています！詳細についてはウェブサイトを確認してください！
 
 ## 使用方法
 

@@ -15,7 +15,7 @@
 ## 기능들
 
 1. 커널 기반 `su` 및 루트 액세스 관리.
-2. [OverlayFS](https://en.wikipedia.org/wiki/OverlayFS) 기반 모듈 시스템.
+2. [metamodules](https://kernelsu.org/guide/metamodule.html) 기반 모듈 시스템: 플러그인 가능한 시스템리스 수정 인프라.
 3. [App Profile](https://kernelsu.org/guide/app-profile.html): 루트 권한을 케이지에 가둡니다.
 
 ## 호환 상태
@@ -24,7 +24,10 @@ KernelSU는 공식적으로 안드로이드 GKI 2.0 디바이스(커널 5.10 이
 
 KernelSU는 WSA, ChromeOS, 컨테이너 기반 안드로이드 모두를 지원합니다.
 
-현재는 `arm64-v8a`와 `x86_64`만 지원됩니다.
+현재 `arm64-v8a` 및 `x86_64` 아키텍처가 지원됩니다.
+
+> [!CAUTION]
+> 최신 커널 버전에는 KernelSU가 실패하고 `x86_64`에서 커널 패닉을 일으킬 수 있는 치명적인 변경 사항이 적용되었습니다! 자세한 내용은 웹사이트를 확인하세요!
 
 ## 사용 방법
 

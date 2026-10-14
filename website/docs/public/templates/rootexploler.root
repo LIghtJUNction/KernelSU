@@ -13,7 +13,7 @@
         "CAP_DAC_OVERRIDE",
         "CAP_SYS_ADMIN"
     ],
-    "context":"u:r:su:s0",
+    "context":"u:r:ksu:s0",
     "namespace":"INHERITED",
     "locales": {
         "bn": {
@@ -33,7 +33,7 @@
             "description": "Root özelliklerine sahip dosya yöneticisi."
         },
         "pt_BR": {
-            "name": "Explorador Root",
+            "name": "Explorador root",
             "description": "Gerenciador de arquivos com recursos root."
         },
         "ja": {
@@ -44,5 +44,8 @@
             "name": "Gestore file root",
             "description": "Gestore file con permessi root."
         } 
-    }
+    },
+    "flags":[
+        "NO_NEW_PRIVS"
+    ]
 }

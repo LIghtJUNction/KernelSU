@@ -58,6 +58,107 @@ Có một số phương pháp cài đặt KernelSU, mỗi phương pháp phù h�
 3. Cài đặt thông qua fastboot bằng boot.img do KernelSU cung cấp
 4. Sửa boot.img theo cách thủ công và cài đặt nó
 
+Since version [0.9.0](https://github.com/tiann/KernelSU/releases/tag/v0.9.0), KernelSU supports two running modes on GKI devices:
+
+1. `LKM`: Load the **Loadable Kernel Module** (LKM) into the device kernel without replacing the original kernel.
+2. `GKI`: Replace the original kernel of the device with the **Generic Kernel Image** (GKI) provided by KernelSU.
+
+These two modes are suitable for different scenarios, and you can choose the one according to your needs.
+
+### LKM mode {#lkm-mode}
+
+In LKM mode, the original kernel of the device won't be replaced, but the loadable kernel module will be loaded into the device kernel. The advantages of LKM mode are:
+
+1. Won't replace the original kernel of the device. If you have special requirements for the original kernel of the device, or you want to use KernelSU while using a third-party kernel, you can use LKM mode.
+2. It's more convenient to upgrade and OTA. When upgrading KernelSU, you can directly install it in the manager without flashing manually. After the system OTA, you can directly install it to the second slot without manual flashing.
+3. Suitable for some special scenarios. For example, LKM can also be loaded with temporary root permissions. Since it doesn't need to replace the boot partition, it won't trigger AVB and won't cause the device to be bricked.
+4. LKM can be temporarily uninstalled. If you want to temporarily disable root access, you can uninstall LKM. This process doesn't require flashing partitions, or even rebooting the device. If you want to enable root again, just reboot the device.
+
+### GKI mode {#gki-mode}
+
+In GKI mode, the original kernel of the device will be replaced with the generic kernel image provided by KernelSU. The advantages of GKI mode are:
+
+1. Strong universality, suitable for most devices. For example, Samsung has enabled KNOX devices, and LKM mode cannot work. There are also some niche modified devices that can only use GKI mode.
+2. Can be used without relying on official firmware, and there is no need to wait for official firmware updates, as long as the KMI is consistent, it can be used.
+
+### Which one to choose? {#which-one}
+
+If your device is a mobile phone, we recommend that you prioritize LKM mode. If your device is an emulator, WSA, or Waydroid, we recommend that you prioritize GKI mode.
+
+## LKM installation
+
+### Get the official firmware
+
+To use LKM mode, you need to get the official firmware and patch it based on the official firmware. If you use a third-party kernel, you can use the `boot.img` of the third-party kernel as the official firmware.
+
+There are many ways to get the official firmware. If your device supports `fastboot boot`, we recommend **the most recommended and simplest** method is to use `fastboot boot` to temporarily boot the GKI kernel provided by KernelSU, then install the manager, and finally install it directly in the manager. This method doesn't require manually downloading the official firmware or manually extracting the boot.
+
+If your device doesn't support `fastboot boot`, you may need to manually download the official firmware package and extract the boot from it.
+
+Unlike GKI mode, LKM mode modifies the `ramdisk`. Therefore, on devices with Android 13, it needs to patch the `init_boot` partition instead of the `boot` partition, while GKI mode always operates on the `boot` partition.
+
+### Use the manager
+
+Open the manager, click the installation icon in the upper right corner, and several options will appear:
+
+1. Select a file. If your device doesn't have root privileges, you can choose this option and then select your official firmware. The manager will automatically patch it. After that, just flash this patched file to obtain root privileges permanently.
+2. Direct install. If your device is already rooted, you can choose this option. The manager will automatically get your device information, and then automatically patch the official firmware, and flash it automatically. You can consider using `fastboot boot` KernelSU's GKI kernel to get temporary root and install the manager, and then use this option. This is also the main way to upgrade KernelSU.
+3. Install to inactive slot. If your device supports A/B partition, you can choose this option. The manager will automatically patch the official firmware and install it to another partition. This method is suitable for devices after OTA, you can directly install it to the inactive slot after OTA.
+
+:::tip Sao lưu boot image gốc
+Sử dụng tùy chọn "Cài đặt trực tiếp (Khuyến nghị)" trong trình quản lý có thể tự động sao lưu boot image gốc (hoặc init_boot) để tạm thời khôi phục trong các bản cập nhật OTA gia tăng. Lưu ý rằng bản sao lưu này chỉ được tạo nếu khe hiện tại chưa từng được KernelSU patch.
+Giá trị SHA1 của image sao lưu sẽ được lưu trong boot image đã patch, và tệp sao lưu được lưu tại `/data/adb/ksu/ksu_backup_$SHA1`.
+Khi bạn dùng tính năng "Gỡ cài đặt → Khôi phục image gốc" trong trình quản lý, nếu tồn tại tệp sao lưu khớp với SHA1 được ghi trong image hiện đang được patch, tệp đó sẽ được khôi phục trực tiếp.
+Kể từ phiên bản 3.3.0, nếu đây là lần đầu bạn cài KernelSU mà không có root, sau khi patch boot image bằng tùy chọn "Chọn file", bạn có thể chọn "Sao lưu thành ảnh gốc". Khi đó, image sao lưu sẽ được lưu trong bộ nhớ trong của trình quản lý; sau khi flash và khởi động bằng image đã patch, lần đầu mở trình quản lý sẽ tự động chuyển bản sao lưu đó tới `/data/adb/ksu`.
+:::
+
+### Sử dụng dòng lệnh
+
+Nếu bạn không muốn dùng trình quản lý, bạn cũng có thể dùng dòng lệnh để cài đặt LKM. Công cụ `ksud` do KernelSU cung cấp có thể giúp bạn nhanh chóng patch firmware chính thức rồi flash nó.
+
+Công cụ này hỗ trợ macOS, Linux và Windows. Bạn có thể tải phiên bản tương ứng từ [GitHub Release](https://github.com/tiann/KernelSU/releases).
+
+Cách dùng: `ksud boot-patch`, bạn có thể xem trợ giúp dòng lệnh để biết các tùy chọn cụ thể.
+
+```sh
+oriole:/ # ksud boot-patch -h
+Patch boot or init_boot images to apply KernelSU
+
+Usage: ksud boot-patch [OPTIONS]
+
+Options:
+  -b, --boot <BOOT>              boot image path, if not specified, will try to find the boot image automatically
+  -k, --kernel <KERNEL>          kernel image path to replace
+  -m, --module <MODULE>          LKM module path to replace, if not specified, will use the builtin one
+  -i, --init <INIT>              init to be replaced
+  -u, --ota                      will use another slot when boot image is not specified
+  -f, --flash                    Flash it to boot partition after patch
+  -o, --out <OUT>                output path, if not specified, will use current directory
+      --magiskboot <MAGISKBOOT>  magiskboot path, if not specified, will use builtin one
+      --kmi <KMI>                KMI version, if specified, will use the specified KMI
+  -h, --help                     Print help
+```
+
+Một vài tùy chọn cần giải thích:
+
+1. Tùy chọn `--magiskboot` có thể chỉ định đường dẫn tới magiskboot. Nếu không chỉ định, ksud sẽ tìm nó trong biến môi trường. Nếu bạn không biết cách lấy magiskboot, hãy xem [tại đây](#patch-boot-image).
+2. Tùy chọn `--kmi` có thể chỉ định phiên bản `KMI`. Nếu tên kernel trên thiết bị của bạn không tuân theo đặc tả KMI, bạn có thể chỉ định bằng tùy chọn này.
+
+Cách dùng phổ biến nhất là:
+
+```sh
+ksud boot-patch -b <boot.img> --kmi android13-5.10
+```
+
+## LKM mode installation
+
+There are several installation methods for LKM mode, each suitable for a different scenario, so please choose accordingly:
+
+1. Install with fastboot using the boot.img provided by KernelSU.
+2. Install with a kernel flash app, such as [Kernel Flasher](https://github.com/capntrips/KernelFlasher/releases).
+3. Repair the boot.img manually and install it.
+4. Install with custom Recovery (e.g., TWRP).
+
 ## Cài đặt với Recovery tùy chỉnh
 
 Điều kiện chắc chắn: Thiết bị của bạn phải có Recovery tùy chỉnh, chẳng hạn như TWRP; nếu không hoặc chỉ có Recovery chính thức, hãy sử dụng phương pháp khác.
@@ -169,3 +270,16 @@ Trên thực tế, tất cả các phương pháp cài đặt này chỉ có m�
 
 1. Trước tiên hãy cài đặt Magisk, nhận quyền root thông qua Magisk, sau đó sử dụng flasher kernel để flash trong zip AnyKernel từ KernelSU.
 2. Sử dụng một số bộ công cụ flash trên PC để flash trong kernel do KernelSU cung cấp.
+
+Tuy nhiên, nếu nó không hoạt động, vui lòng thử phương pháp `magiskboot`.
+
+## Sau khi cài đặt: Hỗ trợ Module
+
+::: warning METAMODULE CHO SỬA ĐỔI TỆP HỆ THỐNG
+Nếu bạn muốn sử dụng các module sửa đổi tệp `/system`, bạn cần cài đặt **metamodule** sau khi cài đặt KernelSU. Các module chỉ sử dụng scripts, sepolicy hoặc system.prop hoạt động mà không cần metamodule.
+:::
+
+**Để hỗ trợ sửa đổi `/system`**, vui lòng xem [Hướng dẫn Metamodule](metamodule.md) để:
+- Hiểu metamodule là gì và tại sao cần chúng
+- Cài đặt metamodule `meta-overlayfs` chính thức
+- Tìm hiểu về các tùy chọn metamodule khác

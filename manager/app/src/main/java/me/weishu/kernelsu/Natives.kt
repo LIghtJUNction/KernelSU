@@ -4,6 +4,9 @@ import android.os.Parcelable
 import androidx.annotation.Keep
 import androidx.compose.runtime.Immutable
 import kotlinx.parcelize.Parcelize
+import kotlinx.serialization.Serializable
+import me.weishu.kernelsu.Natives.Profile.RootProfileFlag
+import me.weishu.kernelsu.ui.util.rootAvailable
 
 /**
  * @author weishu
@@ -16,15 +19,14 @@ object Natives {
     // 10946: add capabilities
     // 10977: change groups_count and groups to avoid overflow write
     // 11071: Fix the issue of failing to set a custom SELinux type.
-    const val MINIMAL_SUPPORTED_KERNEL = 11071
+    // 12143: breaking: new supercall impl
+    // 32310: new get_allow_list ioctl
+    // 32336: new set_sepolicy ioctl
+    // 32377: add set_init_pgrp ioctl
+    // 32513: add uapi version
+    const val MINIMAL_SUPPORTED_KERNEL = 32513
 
-    // 11640: Support query working mode, LKM or GKI
-    // when MINIMAL_SUPPORTED_KERNEL > 11640, we can remove this constant.
-    const val MINIMAL_SUPPORTED_KERNEL_LKM = 11648
-
-    // 12040: Support disable sucompat mode
-    const val MINIMAL_SUPPORTED_SU_COMPAT = 12040
-    const val KERNEL_SU_DOMAIN = "u:r:su:s0"
+    const val KERNEL_SU_DOMAIN = "u:r:ksu:s0"
 
     const val ROOT_UID = 0
     const val ROOT_GID = 0
@@ -33,19 +35,25 @@ object Natives {
         System.loadLibrary("kernelsu")
     }
 
-    // become root manager, return true if success.
-    external fun becomeManager(pkg: String?): Boolean
     val version: Int
-        external get
-
-    // get the uid list of allowed su processes.
-    val allowList: IntArray
         external get
 
     val isSafeMode: Boolean
         external get
 
     val isLkmMode: Boolean
+        external get
+
+    val isLkmBundled: Boolean
+        external get
+
+    val isLateLoadMode: Boolean
+        external get
+
+    val isManager: Boolean
+        external get
+
+    val isPrBuild: Boolean
         external get
 
     external fun uidShouldUmount(uid: Int): Boolean
@@ -67,6 +75,31 @@ object Natives {
     external fun isSuEnabled(): Boolean
     external fun setSuEnabled(enabled: Boolean): Boolean
 
+    /**
+     * Kernel module umount can be disabled temporarily.
+     *  0: disabled
+     *  1: enabled
+     *  negative : error
+     */
+    external fun isKernelUmountEnabled(): Boolean
+    external fun setKernelUmountEnabled(enabled: Boolean): Boolean
+
+    /**
+     * SELinux hide can be disabled temporarily.
+     *  0: disabled
+     *  1: enabled
+     *  negative : error
+     */
+    external fun isSelinuxHideEnabled(): Boolean
+    external fun setSelinuxHideEnabled(enabled: Boolean): Int
+
+    /**
+     * Get the user name for the uid.
+     */
+    external fun getUserName(uid: Int): String?
+
+    external fun getSuperuserCount(): Int
+
     private const val NON_ROOT_DEFAULT_PROFILE_KEY = "$"
     private const val NOBODY_UID = 9999
 
@@ -87,13 +120,20 @@ object Natives {
         }
     }
 
-    fun requireNewKernel(): Boolean {
-        return version < MINIMAL_SUPPORTED_KERNEL
+    val kernelUAPIVersion: Int
+        external get
+
+    val managerUAPIVersion: Int
+        external get
+
+    fun isFullFeatured(): Boolean {
+        return isManager && kernelUAPIVersion == managerUAPIVersion && rootAvailable()
     }
 
+    @Keep
     @Immutable
     @Parcelize
-    @Keep
+    @Serializable
     data class Profile(
         // and there is a default profile for root and non-root
         val name: String,
@@ -117,7 +157,17 @@ object Natives {
         val nonRootUseDefault: Boolean = true,
         val umountModules: Boolean = true,
         var rules: String = "", // this field is save in ksud!!
+
+        val flags: Long = FLAG_KSU_NO_NEW_PRIVS,
     ) : Parcelable {
+        @Keep
+        enum class RootProfileFlag(val display: String, val desc: Int) {
+            NO_NEW_PRIVS(
+                "NO_NEW_PRIVS",
+                R.string.profile_flags_desc_no_new_privs
+            )
+        }
+
         enum class Namespace {
             INHERITED,
             GLOBAL,
@@ -126,4 +176,15 @@ object Natives {
 
         constructor() : this("")
     }
+
+    const val FLAG_KSU_NO_NEW_PRIVS = 1L
 }
+
+fun List<RootProfileFlag>.toRawFlags(): Long =
+    fold(0L) { acc, flag -> acc.or(1L.shl(flag.ordinal)) }
+
+fun List<RootProfileFlag>.toOrdinalList(): List<Int> =
+    map { it.ordinal }
+
+fun Long.toRootProfileFlags(): List<RootProfileFlag> =
+    RootProfileFlag.entries.filter { 1L.shl(it.ordinal).and(this) != 0L }.toList()

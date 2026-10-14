@@ -15,7 +15,7 @@
 ## 特性
 
 - 基于内核的 `su` 和权限管理。
-- 基于 [OverlayFS](https://en.wikipedia.org/wiki/OverlayFS) 的模块系统。
+- 基于 [metamodules](https://kernelsu.org/zh_CN/guide/metamodule.html) 的模块系统：可插拔的模块架构。
 - [App Profile](https://kernelsu.org/zh_CN/guide/app-profile.html): 把 Root 权限关进笼子里。
 
 ## 兼容状态
@@ -24,7 +24,10 @@ KernelSU 官方支持 GKI 2.0 的设备（内核版本5.10以上）；旧内核�
 
 WSA, ChromeOS 和运行在容器上的 Android 也可以与 KernelSU 一起工作。
 
-目前支持架构 : `arm64-v8a` 和 `x86_64`。
+目前支持 `arm64-v8a` 和 `x86_64` 架构。
+
+> [!CAUTION]
+> 最近的内核版本引入了一项破坏性更改，导致 KernelSU 在 `x86_64` 上运行失败，甚至可能引发内核恐慌 (kernel panic)！请查看网站获取更多信息！
 
 ## 使用方法
 

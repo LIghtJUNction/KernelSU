@@ -10,13 +10,13 @@ If the app shows `Not installed`, it means your device is officially supported b
 
 If the app shows `Unsupported`, it means your device isn't officially supported at present. However, you can build kernel source code and integrate KernelSU to make it work, or use [Unofficially supported devices](unofficially-support-devices).
 
-## Does KernelSU need to unlock bootloader?
+## Do I need to unlock the bootloader to use KernelSU?
 
-Certainly, yes.
+Yes. KernelSU requires an unlocked bootloader.
 
 ## Does KernelSU support modules?
 
-Yes, most Magisk modules work on KernelSU. Check [Module guide](module.md) for more info.
+Yes, most Magisk modules work on KernelSU. However, if your module needs to modify `/system` files, you need to install a [metamodule](metamodule.md) (such as `meta-overlayfs`). Other module features work without a metamodule. Check [Module guide](module.md) for more info.
 
 ## Does KernelSU support Xposed?
 
@@ -34,11 +34,11 @@ However, if you only use the `su` of KernelSU, it will work well with Magisk. Ke
 
 ## Will KernelSU substitute Magisk?
 
-We believe that it isn't, and that isn't our goal. Magisk is good enough for userspace root solution and will have a long life. KernelSU's goal is to provide a kernel interface to users, not substituting Magisk.
+No. Replacing Magisk isn't our goal. Magisk is already an excellent userspace root solution. KernelSU focuses on exposing kernel interfaces to users instead of supplanting Magisk.
 
 ## Can KernelSU support non-GKI devices?
 
-It's possible. But you should download the kernel source and intergrate KernelSU into the source tree, and compile the kernel yourself.
+It's possible. But you should download the kernel source, integrate KernelSU into the source tree, and compile the kernel yourself.
 
 ## Can KernelSU support devices below Android 12?
 
@@ -53,7 +53,7 @@ It's possible. KernelSU is backported to kernel 4.14 now. For older kernels, you
 
 ## How to integrate KernelSU for an older kernel?
 
-Please check the [Intergrate for non-GKI devices](how-to-integrate-for-non-gki) guide.
+Please check the [Integrate for non-GKI devices](how-to-integrate-for-non-gki) guide.
 
 ## Why my Android version is 13, and the kernel shows "android12-5.10"?
 
@@ -71,12 +71,12 @@ We don't recommend that you modify the system partition directly. Please check [
 
 Of course. But KernelSU doesn't have built-in hosts support, you can install a module like [systemless-hosts](https://github.com/symbuzzer/systemless-hosts-KernelSU-module) to do it.
 
-## Why is there a huge 1 TB file?
+## Why aren't my modules working after fresh install?
 
-The 1 TB `modules.img` file is a disk image file. **Don't worry about its size**; it's a special type of file known as a [sparse file](https://en.wikipedia.org/wiki/Sparse_file). Its actual size is only the size of the module you use, and it will decrease dynamically after you delete the module. In fact, it doesn't occupy 1 TB of disk space (your device might not even have that much space).
+If your modules need to modify `/system` files, you need to install a [metamodule](metamodule.md) to mount the `system` directory. Other module features (scripts, sepolicy, system.prop) work without a metamodule.
 
-If you really care about the size of this file, you can use the `resize2fs -M` command to make it the actual size. However, the module may not work correctly in this case, and we won't provide any support for this.
+**Solution**: See the [Metamodule Guide](metamodule.md) for installation instructions.
 
-## Why does my device show wrong storage size?
+## What is a metamodule and why do I need one?
 
-Certain devices use non-standard methods to calculate the device's storage size, which may lead to inaccurate storage calculations in system apps and menus, especially when dealing with 1 TB sparse files. Although this problem seems to be specific to Samsung devices, affecting only Samsung apps and services, it's important to note that the discrepancy mainly concerns the total storage size, and the free space calculation remains accurate.
+A metamodule is a special module that provides infrastructure for mounting regular modules. See the [Metamodule Guide](metamodule.md) for a complete explanation.

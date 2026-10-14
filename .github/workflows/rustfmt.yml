@@ -4,15 +4,17 @@ on:
   push:
     branches:
       - 'main'
+      - 'dev'
     paths:
       - '.github/workflows/rustfmt.yml'
-      - 'userspace/ksud/**'
+      - 'userspace/**'
   pull_request:
     branches:
       - 'main'
+      - 'dev'
     paths:
       - '.github/workflows/rustfmt.yml'
-      - 'userspace/ksud/**'
+      - 'userspace/**'
 
 permissions:
   checks: write
@@ -21,13 +23,11 @@ jobs:
   format:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - uses: dtolnay/rust-toolchain@nightly
         with:
           components: rustfmt
 
-      - uses: LoliGothick/rustfmt-check@master
-        with:
-          token: ${{ github.token }}
-          working-directory: userspace/ksud
+      - name: Run rustfmt
+        run: cargo fmt --all --check

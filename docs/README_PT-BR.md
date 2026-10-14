@@ -15,7 +15,7 @@ Uma solução root baseada em kernel para dispositivos Android.
 ## Características
 
 1. `su` e gerenciamento de acesso root baseado em kernel.
-2. Sistema de módulos baseado em [OverlayFS](https://en.wikipedia.org/wiki/OverlayFS).
+2. Sistema de módulos baseado em [metamodules](https://kernelsu.org/pt_BR/guide/metamodule.html): Infraestrutura plugável para modificações systemless.
 3. [Perfil do Aplicativo](https://kernelsu.org/pt_BR/guide/app-profile.html): Tranque o poder root em uma gaiola.
 
 ## Estado de compatibilidade
@@ -24,7 +24,10 @@ O KernelSU oferece suporte oficial a dispositivos Android GKI 2.0 (kernel 5.10+)
 
 Com isso, WSA, ChromeOS e Android baseado em contêiner são todos suportados.
 
-Atualmente, apenas as arquiteturas `arm64-v8a` e `x86_64` são compatíveis.
+Atualmente, as arquiteturas `arm64-v8a` e `x86_64` são suportadas.
+
+> [!CAUTION]
+> Versões recentes do kernel implementaram uma mudança que quebra a compatibilidade, fazendo com que o KernelSU falhe e potencialmente cause um kernel panic no `x86_64`! Verifique o site para mais informações!
 
 ## Uso
 

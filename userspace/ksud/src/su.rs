@@ -1,25 +1,27 @@
-use anyhow::{Ok, Result};
-use getopts::Options;
-use std::env;
-#[cfg(unix)]
-use std::os::unix::process::CommandExt;
-use std::path::PathBuf;
-use std::{ffi::CStr, process::Command};
-
 use crate::{
-    defs,
+    defs, ksucalls,
     utils::{self, umask},
 };
+use anyhow::{Context, Ok, Result, anyhow, bail};
+use getopts::Options;
+use libc::c_int;
+use log::error;
+use std::os::unix::process::CommandExt;
+use std::path::PathBuf;
+use std::{cmp::Ordering, env, io};
+use std::{
+    ffi::{CStr, CString},
+    process::Command,
+};
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
+use crate::ksucalls::get_wrapped_fd;
 use rustix::{
     process::getuid,
     thread::{Gid, Uid, set_thread_res_gid, set_thread_res_uid},
 };
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
 pub fn grant_root(global_mnt: bool) -> Result<()> {
-    rustix::process::ksu_grant_root()?;
+    crate::ksucalls::grant_root()?;
 
     let mut command = Command::new("sh");
     let command = unsafe {
@@ -31,64 +33,128 @@ pub fn grant_root(global_mnt: bool) -> Result<()> {
         })
     };
     // add /data/adb/ksu/bin to PATH
-    #[cfg(any(target_os = "linux", target_os = "android"))]
     add_path_to_env(defs::BINARY_DIR)?;
     Err(command.exec().into())
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
-pub fn grant_root(_global_mnt: bool) -> Result<()> {
-    unimplemented!("grant_root is only available on android");
-}
-
-fn print_usage(program: &str, opts: Options) {
+fn print_usage(program: &str, opts: &Options) {
     let brief = format!("KernelSU\n\nUsage: {program} [options] [-] [user [argument...]]");
     print!("{}", opts.usage(&brief));
 }
 
-fn set_identity(uid: u32, gid: u32, groups: &[u32]) {
-    #[cfg(any(target_os = "linux", target_os = "android"))]
-    {
-        rustix::thread::set_thread_groups(
-            groups
-                .iter()
-                .map(|g| unsafe { Gid::from_raw(*g) })
-                .collect::<Vec<_>>()
-                .as_ref(),
-        )
-        .ok();
-        let gid = unsafe { Gid::from_raw(gid) };
-        let uid = unsafe { Uid::from_raw(uid) };
-        set_thread_res_gid(gid, gid, gid).ok();
-        set_thread_res_uid(uid, uid, uid).ok();
+fn set_identity(uid: u32, gid: u32, groups: &[u32]) -> Result<()> {
+    rustix::thread::set_thread_groups(
+        groups
+            .iter()
+            .map(|g| Gid::from_raw(*g))
+            .collect::<Vec<_>>()
+            .as_ref(),
+    )
+    .with_context(|| format!("setgroups {groups:?}"))?;
+    let gid = Gid::from_raw(gid);
+    let uid = Uid::from_raw(uid);
+    set_thread_res_gid(gid, gid, gid).with_context(|| format!("setresgid {gid}"))?;
+    set_thread_res_uid(uid, uid, uid).with_context(|| format!("setresuid {uid}"))?;
+    Ok(())
+}
+
+fn resolve_uid(user: &str) -> Result<u32> {
+    let c_user = CString::new(user).with_context(|| format!("Invalid user: {user}"))?;
+    let pw = unsafe { libc::getpwnam(c_user.as_ptr()).as_ref() };
+
+    if let Some(pw) = pw {
+        return Ok(pw.pw_uid);
+    }
+
+    user.parse::<u32>()
+        .map_err(|_| anyhow::anyhow!("Unknown user: {user}"))
+}
+
+fn set_selinux_context(context: &str) -> Result<()> {
+    std::fs::write("/proc/thread-self/attr/current", context)?;
+    Ok(())
+}
+
+fn wrap_tty(fd: c_int) {
+    let inner_fn = move || -> Result<()> {
+        if unsafe { libc::isatty(fd) != 1 }
+            && io::Error::last_os_error().raw_os_error() != Some(libc::EACCES)
+        {
+            return Ok(());
+        }
+
+        // The root profile is already active here, so its SELinux domain may
+        // return EACCES while querying the original terminal. In that case,
+        // check the wrapped fd instead, since that descriptor is intended to
+        // bypass this restriction.
+        let new_fd = get_wrapped_fd(fd).context("get_wrapped_fd")?;
+        if unsafe { libc::isatty(new_fd) != 1 } {
+            unsafe { libc::close(new_fd) };
+            return Ok(());
+        }
+        let dup_result = unsafe { libc::dup2(new_fd, fd) };
+        let dup_errno = unsafe { *libc::__errno() };
+        unsafe { libc::close(new_fd) };
+        if dup_result == -1 {
+            bail!("dup {new_fd} -> {fd} errno: {dup_errno}");
+        }
+        Ok(())
+    };
+
+    if let Err(e) = inner_fn() {
+        error!("wrap tty {fd}: {e:?}");
     }
 }
 
-#[cfg(not(any(target_os = "linux", target_os = "android")))]
+#[allow(clippy::similar_names)]
 pub fn root_shell() -> Result<()> {
-    unimplemented!()
-}
+    // The kernel has already applied the selected root profile.
 
-#[cfg(any(target_os = "linux", target_os = "android"))]
-pub fn root_shell() -> Result<()> {
-    // we are root now, this was set in kernel!
+    // A su-session driver fd deliberately survives the exec into ksud. Claim
+    // it before handling any arguments and restore FD_CLOEXEC so it cannot
+    // leak into the target shell, including when fd wrapping is disabled.
+    ksucalls::claim_inherited_driver_fd().context("claim inherited KernelSU driver fd")?;
 
-    use anyhow::anyhow;
     let env_args: Vec<String> = env::args().collect();
     let program = env_args[0].clone();
-    let args = env_args
+    let mut executable: Option<String> = None;
+    let mut exec_args: Option<Vec<String>> = None;
+    let first_option_c = env_args
         .iter()
         .position(|arg| arg == "-c")
-        .map(|i| {
-            let rest = env_args[i + 1..].to_vec();
-            let mut new_args = env_args[..i].to_vec();
+        .unwrap_or(usize::MAX);
+    let first_non_option = env_args
+        .windows(3)
+        .position(|arg| {
+            !arg[1].starts_with('-')
+                && !arg[2].starts_with('-')
+                && !(arg[0].starts_with("-g")
+                    || arg[0].starts_with("-G")
+                    || arg[0].starts_with("-s")
+                    || arg[0].starts_with("-Z")
+                    || arg[0] == "--group"
+                    || arg[0] == "--supp-group="
+                    || arg[0] == "--shell="
+                    || arg[0] == "--context=")
+        })
+        .map_or(usize::MAX, |idx| idx + 1);
+    let args = match first_non_option.cmp(&first_option_c) {
+        Ordering::Equal => env_args,
+        Ordering::Less => {
+            executable = Some(env_args[first_non_option + 1].clone());
+            exec_args = Some(env_args[first_non_option + 2..].to_vec());
+            env_args[..=first_non_option].to_vec()
+        }
+        Ordering::Greater => {
+            let rest = env_args[first_option_c + 1..].to_vec();
+            let mut new_args = env_args[..first_option_c].to_vec();
             new_args.push("-c".to_string());
             if !rest.is_empty() {
                 new_args.push(rest.join(" "));
             }
             new_args
-        })
-        .unwrap_or_else(|| env_args.clone());
+        }
+    };
 
     let mut opts = Options::new();
     opts.optopt(
@@ -124,6 +190,13 @@ pub fn root_shell() -> Result<()> {
         "Specify a supplementary group. The first specified supplementary group is also used as a primary group if the option -g is not specified.",
         "GROUP",
     );
+    opts.optflag("W", "no-wrapper", "don't use ksu fd wrapper");
+    opts.optflag(
+        "",
+        "ksu-no-new-privs",
+        "Prevent this process (and its children) from privilege re-escalation via KernelSU",
+    );
+    opts.optopt("Z", "context", "Specify the SELinux context", "CONTEXT");
 
     // Replace -cn with -z, -mm with -M for supporting getopt_long
     let args = args
@@ -143,13 +216,13 @@ pub fn root_shell() -> Result<()> {
         Result::Ok(m) => m,
         Err(f) => {
             println!("{f}");
-            print_usage(&program, opts);
+            print_usage(&program, &opts);
             std::process::exit(-1);
         }
     };
 
     if matches.opt_present("h") {
-        print_usage(&program, opts);
+        print_usage(&program, &opts);
         return Ok(());
     }
 
@@ -163,21 +236,26 @@ pub fn root_shell() -> Result<()> {
         return Ok(());
     }
 
-    let shell = matches.opt_str("s").unwrap_or("/system/bin/sh".to_string());
+    let shell = matches
+        .opt_str("s")
+        .unwrap_or_else(|| "/system/bin/sh".to_string());
     let mut is_login = matches.opt_present("l");
     let preserve_env = matches.opt_present("p");
     let mount_master = matches.opt_present("M");
+    let use_fd_wrapper = !matches.opt_present("W");
+    let ksu_no_new_privs = matches.opt_present("ksu-no-new-privs");
+    let selinux_context = matches.opt_str("Z");
 
     let groups = matches
         .opt_strs("G")
         .into_iter()
-        .map(|g| g.parse::<u32>().map_err(|_| anyhow!("Invalid GID: {}", g)))
+        .map(|g| g.parse::<u32>().map_err(|_| anyhow!("Invalid GID: {g}")))
         .collect::<Result<Vec<_>, _>>()?;
 
     // if -g provided, use it.
     let mut gid = matches
         .opt_str("g")
-        .map(|g| g.parse::<u32>().map_err(|_| anyhow!("Invalid GID: {}", g)))
+        .map(|g| g.parse::<u32>().map_err(|_| anyhow!("Invalid GID: {g}")))
         .transpose()?;
 
     // otherwise, use the first gid of groups.
@@ -186,10 +264,12 @@ pub fn root_shell() -> Result<()> {
     }
 
     // we've make sure that -c is the last option and it already contains the whole command, no need to construct it again
-    let args = matches
-        .opt_str("c")
-        .map(|cmd| vec!["-c".to_string(), cmd])
-        .unwrap_or_default();
+    let args = exec_args.unwrap_or_else(|| {
+        matches
+            .opt_str("c")
+            .map(|cmd| vec!["-c".to_string(), cmd])
+            .unwrap_or_default()
+    });
 
     let mut free_idx = 0;
     if !matches.free.is_empty() && matches.free[free_idx] == "-" {
@@ -197,29 +277,22 @@ pub fn root_shell() -> Result<()> {
         free_idx += 1;
     }
 
-    // use current uid if no user specified, these has been done in kernel!
-    let mut uid = getuid().as_raw();
-    if free_idx < matches.free.len() {
-        let name = &matches.free[free_idx];
-        uid = unsafe {
-            #[cfg(target_arch = "aarch64")]
-            let pw = libc::getpwnam(name.as_ptr()).as_ref();
-            #[cfg(target_arch = "x86_64")]
-            let pw = libc::getpwnam(name.as_ptr() as *const i8).as_ref();
+    let identity_requested = free_idx < matches.free.len() || gid.is_some() || !groups.is_empty();
 
-            match pw {
-                Some(pw) => pw.pw_uid,
-                None => name.parse::<u32>().unwrap_or(0),
-            }
-        }
-    }
+    // use current uid if no user specified, these has been done in kernel!
+    let uid = if free_idx < matches.free.len() {
+        resolve_uid(&matches.free[free_idx])?
+    } else {
+        getuid().as_raw()
+    };
 
     // if there is no gid provided, use uid.
     let gid = gid.unwrap_or(uid);
+    let executable = executable.as_ref().unwrap_or(&shell);
     // https://github.com/topjohnwu/Magisk/blob/master/native/src/su/su_daemon.cpp#L408
-    let arg0 = if is_login { "-" } else { &shell };
+    let arg0 = if is_login { "-" } else { executable };
 
-    let mut command = &mut Command::new(&shell);
+    let mut command = Command::new(executable);
 
     if !preserve_env {
         // This is actually incorrect, i don't know why.
@@ -234,7 +307,7 @@ pub fn root_shell() -> Result<()> {
             let home = home.to_string_lossy();
             let pw_name = pw_name.to_string_lossy();
 
-            command = command
+            command
                 .env("HOME", home.as_ref())
                 .env("USER", pw_name.as_ref())
                 .env("LOGNAME", pw_name.as_ref())
@@ -243,35 +316,42 @@ pub fn root_shell() -> Result<()> {
     }
 
     // add /data/adb/ksu/bin to PATH
-    #[cfg(any(target_os = "linux", target_os = "android"))]
     add_path_to_env(defs::BINARY_DIR)?;
 
     // when KSURC_PATH exists and ENV is not set, set ENV to KSURC_PATH
     if PathBuf::from(defs::KSURC_PATH).exists() && env::var("ENV").is_err() {
-        command = command.env("ENV", defs::KSURC_PATH);
+        command.env("ENV", defs::KSURC_PATH);
+    }
+
+    if ksu_no_new_privs {
+        ksucalls::set_ksu_no_new_privs().context("set KSU_NO_NEW_PRIVS")?;
     }
 
     // escape from the current cgroup and become session leader
     // WARNING!!! This cause some root shell hang forever!
     // command = command.process_group(0);
-    command = unsafe {
-        command.pre_exec(move || {
-            umask(0o22);
-            utils::switch_cgroups();
 
-            // switch to global mount namespace
-            #[cfg(any(target_os = "linux", target_os = "android"))]
-            if mount_master {
-                let _ = utils::switch_mnt_ns(1);
-            }
+    command.args(args).arg0(arg0);
+    umask(0o22);
+    utils::switch_cgroups();
 
-            set_identity(uid, gid, &groups);
+    // switch to global mount namespace
+    if mount_master {
+        let _ = utils::switch_mnt_ns(1);
+    }
 
-            Result::Ok(())
-        })
-    };
+    if use_fd_wrapper {
+        wrap_tty(0);
+        wrap_tty(1);
+        wrap_tty(2);
+    }
 
-    command = command.args(args).arg0(arg0);
+    if identity_requested {
+        set_identity(uid, gid, &groups)?;
+    }
+    if let Some(context) = selinux_context.as_deref() {
+        set_selinux_context(context).with_context(|| format!("setcontext {context}"))?;
+    }
     Err(command.exec().into())
 }
 
